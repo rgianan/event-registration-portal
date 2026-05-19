@@ -5,7 +5,7 @@ This project has been restructured from a document-intake checklist into an even
 ## What it does
 
 ### Public registration form
-- Collects participant information, Region and HEI from the `HEI_List` master list, food restrictions, emergency contact, accommodation preference, participant type, and breakout session choices.
+- Collects participant profile first, then personal information, conditional affiliation details, food restrictions, emergency contact, accommodation details, transportation request when applicable, and breakout session choices.
 - Enforces required fields on the frontend and backend.
 - Accepts only one registration per email address.
 - Generates a unique 16-character alphanumeric registration code.
@@ -33,10 +33,10 @@ This project has been restructured from a document-intake checklist into an even
 
 ## Main files
 
-- `src/views/PublicForm.vue` — event registration form with dependent Region → HEI dropdowns.
+- `src/views/PublicForm.vue` — event registration form with conditional affiliation fields: Region → HEI for Student/SAS participants, CHEDRO/CHEDCO office dropdowns, and resource-person affiliation textbox.
 - `src/views/AdminDashboard.vue` — admin registration dashboard.
 - `src/views/AdminCheckIn.vue` — protected onsite QR scanner and manual check-in module.
-- `src/lib/eventOptions.js` — frontend options for food restrictions, participant types, and breakout sessions.
+- `src/lib/eventOptions.js` — frontend options for food restrictions, participant types, CHEDRO/CHEDCO office fallbacks, and breakout sessions.
 - `google-apps-script/Code.gs` — backend API, validation, unique email enforcement, QR generation, email confirmation, Google Sheets logging, and audit trail.
 
 ## Environment variables for Netlify
@@ -61,6 +61,8 @@ RESPONSES_SHEET_NAME=Registrations
 AUDIT_SHEET_NAME=Audit
 CHECKINS_SHEET_NAME=Checkins
 HEI_LIST_SHEET_NAME=HEI_List
+CHEDRO_SHEET_NAME=CHEDRO
+CHEDCO_SHEET_NAME=CHEDCO
 ADMIN_KEY=your_admin_key
 SUBMIT_SHARED_TOKEN=must_match_VITE_SUBMIT_SHARED_TOKEN_if_used
 TURNSTILE_SECRET_KEY=optional_cloudflare_secret_key
@@ -78,8 +80,10 @@ The backend creates these tabs if missing:
 - `Registrations`
 - `Checkins`
 - `Audit`
+- `CHEDRO`
+- `CHEDCO`
 
-Required HEI master list tab for the dependent dropdowns:
+Required HEI master list tab for Student and SAS Practitioner/Guidance/Faculty participants:
 
 - `HEI_List`
 
@@ -91,7 +95,7 @@ HEI Name | UII | Region | HEI Type | Province | City/Municipality | Status
 
 The backend also accepts these alternate HEI name headers: `Higher Education Institution`, `HEI`, `Institution Name`, or `Name`.
 
-Only rows with blank `Status` or `Status = Existing` are returned to the frontend. Region options are generated from the unique Region values in this sheet. After the participant selects a Region, the HEI dropdown is filtered to HEIs under that Region only. The backend re-validates the Region + HEI pair on submit, so users cannot bypass the dropdown with browser edits.
+Only rows with blank `Status` or `Status = Existing` are returned to the frontend. Region options are generated from the unique Region values in this sheet. After the participant selects a Region, the HEI dropdown is filtered to HEIs under that Region only. The backend re-validates the Region + HEI pair on submit, so users cannot bypass the dropdown with browser edits. For non-HEI participant types, the backend uses `CHEDRO`, `CHEDCO`, or a free-text affiliation field and stores the final value in the `Affiliation` column.
 
 A CSV seed converted from the provided workbook is included here:
 
@@ -113,7 +117,7 @@ npm run build
 
 1. Deploy `google-apps-script/Code.gs` as a Google Apps Script Web App.
 2. Set the Apps Script properties above.
-3. Run `setupProject_()` once from the Apps Script editor to create/normalize sheets. This now also creates the `Checkins` tab and adds check-in columns to `Registrations`.
+3. Run `setupProject_()` once from the Apps Script editor to create/normalize sheets. This now also creates the `Checkins`, `CHEDRO`, and `CHEDCO` tabs, adds check-in columns, and appends accommodation/transportation/affiliation audit fields to `Registrations`.
 4. Import `data/hei-list.csv` into the `HEI_List` tab starting at A1.
 5. Copy the deployed Web App URL into `VITE_GAS_WEB_APP_URL`.
 6. Deploy the frontend to Netlify.

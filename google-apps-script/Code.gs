@@ -7,6 +7,8 @@
  * - AUDIT_SHEET_NAME          optional, defaults to Audit
  * - CHECKINS_SHEET_NAME       optional, defaults to Checkins
  * - HEI_LIST_SHEET_NAME       optional, defaults to HEI_List
+ * - CHEDRO_SHEET_NAME         optional, defaults to CHEDRO
+ * - CHEDCO_SHEET_NAME         optional, defaults to CHEDCO
  * - ADMIN_KEY                 required for admin dashboard actions
  * - SUBMIT_SHARED_TOKEN       optional; if set, must match the value the client sends in submitToken
  * - TURNSTILE_SECRET_KEY      optional; if set, the client's turnstileToken is verified against Cloudflare
@@ -28,7 +30,11 @@ var EMAIL_PENDING = 'PENDING';
 
 var SEX_OPTIONS = ['Male', 'Female'];
 var ACCOMMODATION_OPTIONS = ['Yes', 'No'];
-var PARTICIPANT_TYPES = ['Faculty', 'Student', 'CHED Regional Office', 'Other'];
+var PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student', 'CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator', 'Other'];
+var HEI_PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student'];
+var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator'];
+var CHEDRO_OFFICE_OPTIONS = ['CHEDRO I', 'CHEDRO II', 'CHEDRO III', 'CHEDRO IV', 'CHEDRO V', 'CHEDRO VI', 'CHEDRO VII', 'CHEDRO VIII', 'CHEDRO IX', 'CHEDRO X', 'CHEDRO XI', 'CHEDRO XII', 'CHEDRO NCR', 'CHEDRO NIR', 'CHEDRO CAR', 'CHEDRO CARAGA', 'CHEDRO MIMAROPA'];
+var CHEDCO_OFFICE_OPTIONS = ['Office of Student Development and Services', 'AFMS', 'GAD', 'HEDFS', 'IAS', 'LLS', 'OCC - Chairman', 'OCC - Comm. Apag III', 'OCC - Comm. Aquino', 'OCC - Comm. Mallari', 'OCC - Comm. Ong', 'OED', 'OIQAG', 'OPRKM', 'OPSD', 'UNIFAST'];
 var FOOD_RESTRICTION_OPTIONS = ['Vegan', 'Peanut Allergies', 'Lactose Intolerance', 'Gluten Intolerance', 'N/A', 'Other'];
 
 var REGION_LABELS = {
@@ -181,16 +187,23 @@ function sanitizeRegistration_(payload) {
     lastName: cleanText_(payload.lastName, 80),
     nickName: cleanText_(payload.nickName, 60),
     sexAtBirth: cleanText_(payload.sexAtBirth, 20),
+    participantType: cleanText_(payload.participantType, 80),
+    participantTypeOther: cleanText_(payload.participantTypeOther, 100),
+    currentDesignation: cleanText_(payload.currentDesignation, 150),
     region: cleanText_(payload.region, 120),
     hei: cleanText_(payload.hei, 220),
+    affiliation: cleanText_(payload.affiliation || payload.hei, 220),
+    chedroOffice: cleanText_(payload.chedroOffice, 140),
+    chedcoOffice: cleanText_(payload.chedcoOffice, 160),
+    resourceAffiliation: cleanText_(payload.resourceAffiliation, 220),
+    transportationFromChedToTagaytay: payload.transportationFromChedToTagaytay === true || String(payload.transportationFromChedToTagaytay || '').toUpperCase() === 'YES',
     contactNumber: cleanText_(payload.contactNumber, 50),
     foodRestrictions: sanitizeList_(payload.foodRestrictions, FOOD_RESTRICTION_OPTIONS, 6),
     foodRestrictionOther: cleanText_(payload.foodRestrictionOther, 120),
     emergencyContact: cleanText_(payload.emergencyContact, 250),
     accommodation: cleanText_(payload.accommodation, 10),
-    participantType: cleanText_(payload.participantType, 40),
-    participantTypeOther: cleanText_(payload.participantTypeOther, 80),
-    currentDesignation: cleanText_(payload.currentDesignation, 150),
+    accommodationCheckInDate: cleanDate_(payload.accommodationCheckInDate),
+    accommodationCheckOutDate: cleanDate_(payload.accommodationCheckOutDate),
     breakoutSession1: cleanText_(payload.breakoutSession1, 500),
     breakoutSession4: cleanText_(payload.breakoutSession4, 600),
     privacyConsent: payload.privacyConsent === true,
@@ -209,17 +222,15 @@ function sanitizeRegistration_(payload) {
   row.formDurationSeconds = row.formStartedAt ? Math.max(0, Math.round((Date.now() - row.formStartedAt) / 1000)) : '';
 
   var missing = [];
+  if (!row.participantType) missing.push('Participant Type');
   if (!row.email) missing.push('Email Address');
   if (!row.firstName) missing.push('First Name');
   if (!row.lastName) missing.push('Last Name');
   if (!row.sexAtBirth) missing.push('Assigned Sex at Birth');
-  if (!row.region) missing.push('Region');
-  if (!row.hei) missing.push('Higher Education Institution');
   if (!row.contactNumber) missing.push('Contact Number');
   if (!row.foodRestrictions.length) missing.push('Food Restrictions');
   if (!row.emergencyContact) missing.push('Emergency Contact');
   if (!row.accommodation) missing.push('Accommodation');
-  if (!row.participantType) missing.push('Participant Type');
   if (!row.breakoutSession1) missing.push('Breakout Session 1');
   if (!row.breakoutSession4) missing.push('Breakout Session 4');
   if (!row.privacyConsent) missing.push('Privacy Consent');
@@ -229,17 +240,30 @@ function sanitizeRegistration_(payload) {
   if (SEX_OPTIONS.indexOf(row.sexAtBirth) === -1) throw new Error('Invalid assigned sex at birth value.');
   if (ACCOMMODATION_OPTIONS.indexOf(row.accommodation) === -1) throw new Error('Invalid accommodation value.');
   if (PARTICIPANT_TYPES.indexOf(row.participantType) === -1) throw new Error('Invalid participant type.');
-  if (row.participantType === 'Faculty' && !row.currentDesignation) throw new Error('Current designation is required for faculty participants.');
-  if (row.participantType !== 'Faculty') row.currentDesignation = '';
+
+  if (row.participantType === 'SAS Practitioner/Guidance/Faculty' && !row.currentDesignation) throw new Error('Current designation is required for SAS Practitioner/Guidance/Faculty participants.');
+  if (row.participantType !== 'SAS Practitioner/Guidance/Faculty') row.currentDesignation = '';
   if (row.participantType === 'Other' && !row.participantTypeOther) throw new Error('Specify the other participant type.');
   if (row.participantType !== 'Other') row.participantTypeOther = '';
+
+  canonicalizeAffiliationSelection_(row);
+
+  if (TRANSPORTATION_ELIGIBLE_TYPES.indexOf(row.participantType) === -1) row.transportationFromChedToTagaytay = false;
+
+  if (row.accommodation === 'Yes') {
+    if (!row.accommodationCheckInDate) throw new Error('Accommodation check-in date is required.');
+    if (!row.accommodationCheckOutDate) throw new Error('Accommodation check-out date is required.');
+    if (row.accommodationCheckOutDate < row.accommodationCheckInDate) throw new Error('Accommodation check-out date cannot be earlier than check-in date.');
+  } else {
+    row.accommodationCheckInDate = '';
+    row.accommodationCheckOutDate = '';
+  }
+
   if (row.foodRestrictions.indexOf('N/A') !== -1 && row.foodRestrictions.length > 1) throw new Error('Choose either N/A or specific food restrictions, not both.');
   if (row.foodRestrictions.indexOf('Other') !== -1 && !row.foodRestrictionOther) throw new Error('Specify the other food restriction.');
   if (row.foodRestrictions.indexOf('Other') === -1) row.foodRestrictionOther = '';
   if (BREAKOUT_SESSION_1_OPTIONS.indexOf(row.breakoutSession1) === -1) throw new Error('Invalid Breakout Session 1 selection.');
   if (BREAKOUT_SESSION_4_OPTIONS.indexOf(row.breakoutSession4) === -1) throw new Error('Invalid Breakout Session 4 selection.');
-
-  canonicalizeHeiSelection_(row);
 
   return row;
 }
@@ -262,11 +286,14 @@ function buildFullName_(firstName, middleInitial, lastName) {
 }
 
 function handleGetHeiOptions_() {
+  var config = getConfig_();
   var master = getHeiMaster_();
   return jsonOutput_({
     ok: true,
     regions: master.regions,
     heis: master.heis,
+    chedroOffices: getOfficeOptions_(config.chedroSheetName, CHEDRO_OFFICE_OPTIONS),
+    chedcoOffices: getOfficeOptions_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS),
     available: master.available,
     message: master.available ? '' : 'HEI_List sheet is missing or has unsupported headers.'
   });
@@ -353,6 +380,65 @@ function canonicalizeHeiSelection_(row) {
   throw new Error('Select a valid Higher Education Institution from the selected Region based on the HEI_List sheet.');
 }
 
+function canonicalizeAffiliationSelection_(row) {
+  if (HEI_PARTICIPANT_TYPES.indexOf(row.participantType) !== -1) {
+    if (!row.region) throw new Error('Region is required for Student and SAS Practitioner/Guidance/Faculty participants.');
+    if (!row.hei) throw new Error('Higher Education Institution is required for Student and SAS Practitioner/Guidance/Faculty participants.');
+    canonicalizeHeiSelection_(row);
+    row.affiliation = row.hei;
+    row.chedroOffice = '';
+    row.chedcoOffice = '';
+    row.resourceAffiliation = '';
+    return;
+  }
+
+  row.region = '';
+  row.hei = '';
+
+  if (row.participantType === 'CHED Regional Office') {
+    validateOfficeOption_(row.chedroOffice, getOfficeOptions_(getConfig_().chedroSheetName, CHEDRO_OFFICE_OPTIONS), 'CHED Regional Office');
+    row.affiliation = row.chedroOffice;
+    row.chedcoOffice = '';
+    row.resourceAffiliation = '';
+    return;
+  }
+
+  if (row.participantType === 'CHED Central Office') {
+    validateOfficeOption_(row.chedcoOffice, getOfficeOptions_(getConfig_().chedcoSheetName, CHEDCO_OFFICE_OPTIONS), 'CHED Central Office');
+    row.affiliation = row.chedcoOffice;
+    row.chedroOffice = '';
+    row.resourceAffiliation = '';
+    return;
+  }
+
+  if (row.participantType === 'Resource Person/Facilitator/Moderator') {
+    if (!row.resourceAffiliation) throw new Error('Affiliation is required for Resource Person/Facilitator/Moderator participants.');
+    row.affiliation = row.resourceAffiliation;
+    row.chedroOffice = '';
+    row.chedcoOffice = '';
+    return;
+  }
+
+  if (row.participantType === 'Other') {
+    row.affiliation = row.resourceAffiliation || row.participantTypeOther;
+    row.chedroOffice = '';
+    row.chedcoOffice = '';
+    return;
+  }
+
+  throw new Error('Invalid participant type.');
+}
+
+function validateOfficeOption_(value, allowed, label) {
+  if (!value) throw new Error(label + ' is required.');
+  var key = normalizeKey_(value);
+  for (var i = 0; i < allowed.length; i++) {
+    if (normalizeKey_(allowed[i]) === key) return;
+  }
+  throw new Error('Select a valid ' + label + '.');
+}
+
+
 function formatRegionLabel_(region) {
   var raw = cleanText_(region, 120);
   return REGION_LABELS[raw] || raw;
@@ -409,12 +495,19 @@ function handleListResponses_(payload) {
       nickName: String(obj.Nick_Name || ''),
       sexAtBirth: String(obj.Assigned_Sex_At_Birth || ''),
       region: String(obj.Region || ''),
-      hei: String(obj.Higher_Education_Institution || ''),
+      hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+      affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+      chedroOffice: String(obj.CHEDRO_Office || ''),
+      chedcoOffice: String(obj.CHEDCO_Office || ''),
+      resourceAffiliation: String(obj.Resource_Affiliation || ''),
       contactNumber: String(obj.Contact_Number || ''),
       foodRestrictions: String(obj.Food_Restrictions || ''),
       foodRestrictionOther: String(obj.Food_Restrictions_Other || ''),
       emergencyContact: String(obj.Emergency_Contact || ''),
       accommodation: accommodation,
+      accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
+      accommodationCheckOutDate: formatDateOnly_(obj.Accommodation_Check_Out_Date),
+      transportationFromChedToTagaytay: String(obj.Transportation_From_CHED_To_Tagaytay_Venue || ''),
       participantType: participantType,
       participantTypeOther: String(obj.Participant_Type_Other || ''),
       currentDesignation: String(obj.Current_Designation || ''),
@@ -435,9 +528,11 @@ function handleListResponses_(payload) {
     if (tsLabel && tsLabel.slice(0, 10) === todayKey) stats.today++;
     if (String(obj.Check_In_Status || '') === CHECKIN_STATUS_CHECKED_IN) stats.checkedIn++;
     if (accommodation === 'Yes') stats.accommodationYes++;
-    if (participantType === 'Faculty') stats.faculty++;
+    if (participantType === 'SAS Practitioner/Guidance/Faculty') stats.sasFaculty++;
     else if (participantType === 'Student') stats.student++;
     else if (participantType === 'CHED Regional Office') stats.chedro++;
+    else if (participantType === 'CHED Central Office') stats.chedco++;
+    else if (participantType === 'Resource Person/Facilitator/Moderator') stats.resource++;
     else if (participantType === 'Other') stats.other++;
   }
 
@@ -538,7 +633,8 @@ function handleListCheckins_(payload) {
       email: String(obj.Email_Address || ''),
       fullName: String(obj.Full_Name || ''),
       region: String(obj.Region || ''),
-      hei: String(obj.Higher_Education_Institution || ''),
+      hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+      affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
       participantType: String(obj.Participant_Type || ''),
       status: String(obj.Check_In_Status || ''),
       method: String(obj.Method || ''),
@@ -610,12 +706,19 @@ function rowObjectToRegistration_(obj) {
     nickName: String(obj.Nick_Name || ''),
     sexAtBirth: String(obj.Assigned_Sex_At_Birth || ''),
     region: String(obj.Region || ''),
-    hei: String(obj.Higher_Education_Institution || ''),
+    hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+    affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+    chedroOffice: String(obj.CHEDRO_Office || ''),
+    chedcoOffice: String(obj.CHEDCO_Office || ''),
+    resourceAffiliation: String(obj.Resource_Affiliation || ''),
     contactNumber: String(obj.Contact_Number || ''),
     foodRestrictions: String(obj.Food_Restrictions || '').split('; ').filter(Boolean),
     foodRestrictionOther: String(obj.Food_Restrictions_Other || ''),
     emergencyContact: String(obj.Emergency_Contact || ''),
     accommodation: String(obj.Will_Avail_Accommodation || ''),
+    accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
+    accommodationCheckOutDate: formatDateOnly_(obj.Accommodation_Check_Out_Date),
+    transportationFromChedToTagaytay: String(obj.Transportation_From_CHED_To_Tagaytay_Venue || '').toUpperCase() === 'YES',
     participantType: String(obj.Participant_Type || ''),
     participantTypeOther: String(obj.Participant_Type_Other || ''),
     currentDesignation: String(obj.Current_Designation || ''),
@@ -638,12 +741,18 @@ function registrationToRow_(headers, data) {
     Nick_Name: row.nickName,
     Assigned_Sex_At_Birth: row.sexAtBirth,
     Region: row.region,
-    Higher_Education_Institution: row.hei,
+    Affiliation: row.affiliation || row.hei,
     Contact_Number: row.contactNumber,
     Food_Restrictions: row.foodRestrictions.join('; '),
     Food_Restrictions_Other: row.foodRestrictionOther,
     Emergency_Contact: row.emergencyContact,
     Will_Avail_Accommodation: row.accommodation,
+    Accommodation_Check_In_Date: row.accommodationCheckInDate,
+    Accommodation_Check_Out_Date: row.accommodationCheckOutDate,
+    Transportation_From_CHED_To_Tagaytay_Venue: row.transportationFromChedToTagaytay ? 'YES' : 'NO',
+    CHEDRO_Office: row.chedroOffice,
+    CHEDCO_Office: row.chedcoOffice,
+    Resource_Affiliation: row.resourceAffiliation,
     Participant_Type: row.participantType,
     Participant_Type_Other: row.participantTypeOther,
     Current_Designation: row.currentDesignation,
@@ -701,6 +810,58 @@ function getCheckinSheet_(config) {
   return sheet;
 }
 
+
+function getOfficeSheet_(sheetName, defaultOffices) {
+  var ss = SpreadsheetApp.openById(getConfig_().spreadsheetId);
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.getRange(1, 1).setValue('Office_Name');
+    if (defaultOffices && defaultOffices.length) {
+      sheet.getRange(2, 1, defaultOffices.length, 1).setValues(defaultOffices.map(function (name) { return [name]; }));
+    }
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  var firstHeader = String(sheet.getRange(1, 1).getValue() || '').trim();
+  if (firstHeader !== 'Office_Name') sheet.getRange(1, 1).setValue('Office_Name');
+  sheet.setFrozenRows(1);
+
+  if (sheet.getLastRow() < 2 && defaultOffices && defaultOffices.length) {
+    sheet.getRange(2, 1, defaultOffices.length, 1).setValues(defaultOffices.map(function (name) { return [name]; }));
+  } else if (defaultOffices && defaultOffices.length) {
+    var existing = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 1), 1).getDisplayValues().map(function (row) { return cleanText_(row[0], 160); }).filter(Boolean);
+    var existingMap = {};
+    for (var e = 0; e < existing.length; e++) existingMap[normalizeKey_(existing[e])] = true;
+    var missing = [];
+    for (var i = 0; i < defaultOffices.length; i++) {
+      if (!existingMap[normalizeKey_(defaultOffices[i])]) missing.push([defaultOffices[i]]);
+    }
+    if (missing.length) sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, 1).setValues(missing);
+  }
+  return sheet;
+}
+
+function getOfficeOptions_(sheetName, defaultOffices) {
+  try {
+    var sheet = getOfficeSheet_(sheetName, defaultOffices);
+    var values = sheet.getDataRange().getDisplayValues();
+    if (!values || values.length < 2) return defaultOffices.slice();
+    var out = [];
+    var seen = {};
+    for (var i = 1; i < values.length; i++) {
+      var name = cleanText_(values[i][0], 160);
+      if (!name || seen[normalizeKey_(name)]) continue;
+      seen[normalizeKey_(name)] = true;
+      out.push(name);
+    }
+    return out.length ? out : defaultOffices.slice();
+  } catch (err) {
+    return defaultOffices.slice();
+  }
+}
+
 function getCheckinHeaders_() {
   return [
     'Timestamp',
@@ -709,7 +870,7 @@ function getCheckinHeaders_() {
     'Email_Address',
     'Full_Name',
     'Region',
-    'Higher_Education_Institution',
+    'Affiliation',
     'Participant_Type',
     'Check_In_Status',
     'Method',
@@ -731,7 +892,7 @@ function appendCheckinLog_(config, participant, meta) {
     Email_Address: participant.email,
     Full_Name: participant.fullName,
     Region: participant.region,
-    Higher_Education_Institution: participant.hei,
+    Affiliation: participant.affiliation || participant.hei,
     Participant_Type: participant.participantType,
     Check_In_Status: CHECKIN_STATUS_CHECKED_IN,
     Method: meta.method,
@@ -757,7 +918,7 @@ function getResponseHeaders_() {
     'Nick_Name',
     'Assigned_Sex_At_Birth',
     'Region',
-    'Higher_Education_Institution',
+    'Affiliation',
     'Contact_Number',
     'Food_Restrictions',
     'Food_Restrictions_Other',
@@ -788,7 +949,13 @@ function getResponseHeaders_() {
     'Check_In_At',
     'Check_In_By',
     'Check_In_Method',
-    'Check_In_Note'
+    'Check_In_Note',
+    'Accommodation_Check_In_Date',
+    'Accommodation_Check_Out_Date',
+    'Transportation_From_CHED_To_Tagaytay_Venue',
+    'CHEDRO_Office',
+    'CHEDCO_Office',
+    'Resource_Affiliation'
   ];
 }
 
@@ -847,7 +1014,11 @@ function buildParticipantPayload_(found, duplicate) {
     email: String(obj.Email_Address || ''),
     fullName: String(obj.Full_Name || ''),
     region: String(obj.Region || ''),
-    hei: String(obj.Higher_Education_Institution || ''),
+    hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+    affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
+    chedroOffice: String(obj.CHEDRO_Office || ''),
+    chedcoOffice: String(obj.CHEDCO_Office || ''),
+    resourceAffiliation: String(obj.Resource_Affiliation || ''),
     contactNumber: String(obj.Contact_Number || ''),
     participantType: String(obj.Participant_Type || ''),
     checkInStatus: String(obj.Check_In_Status || ''),
@@ -884,6 +1055,27 @@ function formatDateTime_(value) {
   var date = value instanceof Date ? value : new Date(value);
   if (!date || isNaN(date.getTime())) return String(value || '');
   return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+function formatDateOnly_(value) {
+  if (!value) return '';
+  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  var date = new Date(raw);
+  if (!date || isNaN(date.getTime())) return raw;
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function cleanDate_(value) {
+  var raw = cleanText_(value, 20);
+  if (!raw) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) throw new Error('Invalid date format. Use YYYY-MM-DD.');
+  var date = new Date(raw + 'T00:00:00Z');
+  if (!date || isNaN(date.getTime())) throw new Error('Invalid date value.');
+  var normalized = Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
+  if (normalized !== raw) throw new Error('Invalid date value.');
+  return raw;
 }
 
 function updateEmailStatus_(registrationCode, sentValue, errorValue) {
@@ -953,7 +1145,7 @@ function sendConfirmationEmail_(data) {
   var timestampLabel = Utilities.formatDate(new Date(data.timestamp), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
   var food = (row.foodRestrictions || []).join('; ') + (row.foodRestrictionOther ? ' - ' + row.foodRestrictionOther : '');
   var participantType = row.participantType + (row.participantTypeOther ? ' - ' + row.participantTypeOther : '');
-  var regionDisplay = formatRegionLabel_(row.region);
+  var regionDisplay = row.region ? formatRegionLabel_(row.region) : 'N/A';
 
   var subject = '[' + eventName + '] Registration Confirmation - ' + data.registrationCode;
   var htmlBody = '' +
@@ -971,11 +1163,14 @@ function sendConfirmationEmail_(data) {
     rowHtml_('Full Name', escapeHtml_(row.fullName)) +
     rowHtml_('Email Address', escapeHtml_(row.email)) +
     rowHtml_('Region', escapeHtml_(regionDisplay)) +
-    rowHtml_('Higher Education Institution', escapeHtml_(row.hei)) +
+    rowHtml_('Affiliation', escapeHtml_(row.affiliation || row.hei)) +
     rowHtml_('Contact Number', escapeHtml_(row.contactNumber)) +
     rowHtml_('Food Restrictions', escapeHtml_(food || 'N/A')) +
     rowHtml_('Emergency Contact', escapeHtml_(row.emergencyContact)) +
     rowHtml_('Accommodation', escapeHtml_(row.accommodation)) +
+    rowHtml_('Accommodation Check-in Date', escapeHtml_(row.accommodationCheckInDate || 'N/A')) +
+    rowHtml_('Accommodation Check-out Date', escapeHtml_(row.accommodationCheckOutDate || 'N/A')) +
+    rowHtml_('Transportation from CHED to Tagaytay Venue', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
     rowHtml_('Participant Type', escapeHtml_(participantType)) +
     rowHtml_('Current Designation', escapeHtml_(row.currentDesignation || 'N/A')) +
     rowHtml_('Breakout Session 1', escapeHtml_(row.breakoutSession1)) +
@@ -997,11 +1192,14 @@ function sendConfirmationEmail_(data) {
     'Full Name: ' + row.fullName,
     'Email Address: ' + row.email,
     'Region: ' + regionDisplay,
-    'Higher Education Institution: ' + row.hei,
+    'Affiliation: ' + (row.affiliation || row.hei),
     'Contact Number: ' + row.contactNumber,
     'Food Restrictions: ' + (food || 'N/A'),
     'Emergency Contact: ' + row.emergencyContact,
     'Accommodation: ' + row.accommodation,
+    'Accommodation Check-in Date: ' + (row.accommodationCheckInDate || 'N/A'),
+    'Accommodation Check-out Date: ' + (row.accommodationCheckOutDate || 'N/A'),
+    'Transportation from CHED to Tagaytay Venue: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
     'Participant Type: ' + participantType,
     'Current Designation: ' + (row.currentDesignation || 'N/A'),
     'Breakout Session 1: ' + row.breakoutSession1,
@@ -1043,7 +1241,7 @@ function markSubmissionFingerprint_(row, payload) {
 }
 
 function submissionFingerprint_(row, payload) {
-  var base = [row.email, row.fullName, row.region, row.hei, row.userAgent].join('|');
+  var base = [row.email, row.fullName, row.region, row.affiliation || row.hei, row.userAgent].join('|');
   var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, base);
   return 'submit:' + Utilities.base64EncodeWebSafe(digest);
 }
@@ -1113,6 +1311,8 @@ function getConfig_() {
     auditSheetName: props.getProperty('AUDIT_SHEET_NAME') || 'Audit',
     checkinsSheetName: props.getProperty('CHECKINS_SHEET_NAME') || 'Checkins',
     heiListSheetName: props.getProperty('HEI_LIST_SHEET_NAME') || 'HEI_List',
+    chedroSheetName: props.getProperty('CHEDRO_SHEET_NAME') || 'CHEDRO',
+    chedcoSheetName: props.getProperty('CHEDCO_SHEET_NAME') || 'CHEDCO',
     adminKey: props.getProperty('ADMIN_KEY') || '',
     submitSharedToken: props.getProperty('SUBMIT_SHARED_TOKEN') || '',
     turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || '',
@@ -1155,12 +1355,14 @@ function setupProject_() {
   if (!config.spreadsheetId || config.spreadsheetId === 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE') throw new Error('Set SPREADSHEET_ID in Script Properties first.');
   getResponseSheet_(config);
   getCheckinSheet_(config);
+  getOfficeSheet_(config.chedroSheetName, CHEDRO_OFFICE_OPTIONS);
+  getOfficeSheet_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS);
   getAuditSheet_();
   return 'Setup complete.';
 }
 
 function emptyStats_() {
-  return { total: 0, today: 0, checkedIn: 0, accommodationYes: 0, faculty: 0, student: 0, chedro: 0, other: 0 };
+  return { total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedro: 0, chedco: 0, resource: 0, other: 0 };
 }
 
 function columnMap_(headers) {

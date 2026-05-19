@@ -8,15 +8,21 @@
    - `AUDIT_SHEET_NAME` = `Audit`
    - `CHECKINS_SHEET_NAME` = `Checkins`
    - `HEI_LIST_SHEET_NAME` = `HEI_List`
+   - `CHEDRO_SHEET_NAME` = `CHEDRO`
+   - `CHEDCO_SHEET_NAME` = `CHEDCO`
    - `ADMIN_KEY`
    - `SUBMIT_SHARED_TOKEN` if used by the frontend
    - `TURNSTILE_SECRET_KEY` if Cloudflare Turnstile is enabled
    - `EVENT_NAME`
    - `EVENT_ORGANIZER_NAME`
    - `QR_PAYLOAD_PREFIX` optional. Use `https://your-site.netlify.app/checkin?code={{code}}` only if you later build auto-fill from URL; otherwise raw code QR is fine.
-4. Run `setupProject_()` once. It creates/normalizes `Registrations`, `Checkins`, and `Audit`.
+4. Run `setupProject_()` once. It creates/normalizes `Registrations`, `Checkins`, `Audit`, `CHEDRO`, and `CHEDCO`.
 5. Deploy as Web App.
 6. Copy the Web App URL to Netlify as `VITE_GAS_WEB_APP_URL`.
+
+### Affiliation master sheets
+
+`setupProject_()` creates `CHEDRO` and `CHEDCO` sheets with one field, `Office_Name`, and seeds the approved office dropdown values.
 
 ### HEI master sheet
 
@@ -26,7 +32,7 @@ Create a tab named `HEI_List` with these headers:
 HEI Name | UII | Region | HEI Type | Province | City/Municipality | Status
 ```
 
-Only rows with blank `Status` or `Status = Existing` are loaded. The public form uses this tab for the Region dropdown and filters HEIs based on the selected Region.
+Only rows with blank `Status` or `Status = Existing` are loaded. The public form uses this tab for the Region dropdown and filters HEIs based on the selected Region for Student and SAS Practitioner/Guidance/Faculty participants. Other participant types use the CHEDRO/CHEDCO office sheets or a free-text affiliation field.
 
 ### Onsite check-in
 

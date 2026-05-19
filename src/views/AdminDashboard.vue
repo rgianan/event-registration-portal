@@ -18,7 +18,7 @@ const activeView = ref('registrations')
 const ADMIN_KEY_STORAGE = 'eventRegistrationAdminKey'
 
 const admin = reactive({ key: '', search: '' })
-const stats = ref({ total: 0, today: 0, checkedIn: 0, accommodationYes: 0, faculty: 0, student: 0, chedro: 0, other: 0 })
+const stats = ref({ total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedro: 0, chedco: 0, resource: 0, other: 0 })
 
 const filteredResponses = computed(() => {
   const q = admin.search.trim().toLowerCase()
@@ -31,11 +31,14 @@ const filteredResponses = computed(() => {
       row.fullName,
       row.email,
       row.region,
-      row.hei,
+      row.affiliation || row.hei,
       row.contactNumber,
       row.foodRestrictions,
       row.emergencyContact,
       row.accommodation,
+      row.accommodationCheckInDate,
+      row.accommodationCheckOutDate,
+      row.transportationFromChedToTagaytay,
       row.participantType,
       row.currentDesignation,
       row.breakoutSession1,
@@ -61,7 +64,7 @@ const filteredCheckins = computed(() => {
       row.email,
       row.fullName,
       row.region,
-      row.hei,
+      row.affiliation || row.hei,
       row.participantType,
       row.status,
       row.method,
@@ -183,12 +186,12 @@ function csvEscape(value) {
 function exportCsvClient() {
   const isCheckins = activeView.value === 'checkins'
   const header = isCheckins
-    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Higher Education Institution', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
-    : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Higher Education Institution', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Participant Type', 'Current Designation', 'Breakout Session 1', 'Breakout Session 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
+    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
+    : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'Transportation from CHED to Tagaytay Venue', 'Participant Type', 'Current Designation', 'Breakout Session 1', 'Breakout Session 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
 
   const rows = isCheckins
-    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
-    : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
+    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
+    : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.accommodationCheckInDate, row.accommodationCheckOutDate, row.transportationFromChedToTagaytay, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
 
   const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -264,14 +267,16 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-7">
+      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-9">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Total</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.total }}</p></div>
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Today</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.today }}</p></div>
         <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4"><p class="text-xs uppercase tracking-wide text-violet-700">Checked in</p><p class="mt-2 text-3xl font-bold text-violet-950">{{ stats.checkedIn }}</p></div>
         <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p class="text-xs uppercase tracking-wide text-blue-700">Accommodation</p><p class="mt-2 text-3xl font-bold text-blue-950">{{ stats.accommodationYes }}</p></div>
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs uppercase tracking-wide text-emerald-700">Faculty</p><p class="mt-2 text-3xl font-bold text-emerald-950">{{ stats.faculty }}</p></div>
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs uppercase tracking-wide text-emerald-700">SAS/Guidance/Faculty</p><p class="mt-2 text-3xl font-bold text-emerald-950">{{ stats.sasFaculty }}</p></div>
         <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><p class="text-xs uppercase tracking-wide text-amber-700">Students</p><p class="mt-2 text-3xl font-bold text-amber-950">{{ stats.student }}</p></div>
         <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4"><p class="text-xs uppercase tracking-wide text-violet-700">CHEDRO</p><p class="mt-2 text-3xl font-bold text-violet-950">{{ stats.chedro }}</p></div>
+        <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4"><p class="text-xs uppercase tracking-wide text-sky-700">CHEDCO</p><p class="mt-2 text-3xl font-bold text-sky-950">{{ stats.chedco }}</p></div>
+        <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4"><p class="text-xs uppercase tracking-wide text-orange-700">Resource</p><p class="mt-2 text-3xl font-bold text-orange-950">{{ stats.resource }}</p></div>
       </div>
 
       <div class="mb-4 flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3 lg:flex-row lg:items-center lg:justify-between">
@@ -283,7 +288,7 @@ onMounted(() => {
             Check-ins
           </button>
         </div>
-        <input v-model="admin.search" type="search" :placeholder="activeView === 'checkins' ? 'Search check-ins by code, name, email, method, note' : 'Search registrations by code, name, email, region, HEI, session, food restriction'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 lg:max-w-xl" />
+        <input v-model="admin.search" type="search" :placeholder="activeView === 'checkins' ? 'Search check-ins by code, name, email, method, note' : 'Search registrations by code, name, email, region, affiliation, session, food restriction'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 lg:max-w-xl" />
       </div>
 
       <div v-if="adminError" class="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ adminError }}</div>
@@ -297,7 +302,7 @@ onMounted(() => {
                 <th class="w-[140px] px-3 py-3">Timestamp</th>
                 <th class="w-[140px] px-3 py-3">Code</th>
                 <th class="w-[230px] px-3 py-3">Participant</th>
-                <th class="w-[260px] px-3 py-3">Region / HEI</th>
+                <th class="w-[260px] px-3 py-3">Region / Affiliation</th>
                 <th class="w-[230px] px-3 py-3">Logistics</th>
                 <th class="w-[300px] px-3 py-3">Breakout Sessions</th>
                 <th class="w-[210px] px-3 py-3">Email / QR</th>
@@ -329,11 +334,13 @@ onMounted(() => {
                 </td>
                 <td class="px-3 py-4 text-slate-700 break-words">
                   <p class="font-medium text-slate-900">{{ row.region }}</p>
-                  <p class="mt-1">{{ row.hei }}</p>
+                  <p class="mt-1">{{ row.affiliation || row.hei }}</p>
                 </td>
                 <td class="px-3 py-4 text-slate-700 break-words">
                   <p><span class="font-semibold">Food:</span> {{ row.foodRestrictions || '—' }}</p>
                   <p class="mt-2"><span class="font-semibold">Accommodation:</span> {{ row.accommodation || '—' }}</p>
+                  <p v-if="row.accommodation === 'Yes'" class="mt-1 text-xs text-slate-500">{{ row.accommodationCheckInDate || '—' }} to {{ row.accommodationCheckOutDate || '—' }}</p>
+                  <p v-if="row.transportationFromChedToTagaytay === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">Transport:</span> {{ row.transportationFromChedToTagaytay }}</p>
                   <p class="mt-2"><span class="font-semibold">Emergency:</span> {{ row.emergencyContact || '—' }}</p>
                 </td>
                 <td class="px-3 py-4 text-slate-700 break-words">
@@ -386,7 +393,7 @@ onMounted(() => {
                 <th class="w-[150px] px-3 py-3">Timestamp</th>
                 <th class="w-[140px] px-3 py-3">Code</th>
                 <th class="w-[250px] px-3 py-3">Participant</th>
-                <th class="w-[280px] px-3 py-3">Region / HEI</th>
+                <th class="w-[280px] px-3 py-3">Region / Affiliation</th>
                 <th class="w-[150px] px-3 py-3">Type</th>
                 <th class="w-[140px] px-3 py-3">Method</th>
                 <th class="w-[130px] px-3 py-3">Checked By</th>
@@ -410,7 +417,7 @@ onMounted(() => {
                 </td>
                 <td class="px-3 py-4 text-slate-700 break-words">
                   <p class="font-medium text-slate-900">{{ row.region }}</p>
-                  <p class="mt-1">{{ row.hei }}</p>
+                  <p class="mt-1">{{ row.affiliation || row.hei }}</p>
                 </td>
                 <td class="px-3 py-4 text-slate-700 break-words">{{ row.participantType || '—' }}</td>
                 <td class="px-3 py-4 text-slate-700 break-words">{{ row.method || '—' }}</td>

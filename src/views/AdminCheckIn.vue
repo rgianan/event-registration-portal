@@ -284,7 +284,7 @@ onBeforeUnmount(() => stopScanner())
           <p class="mt-1 font-mono text-sm font-semibold text-slate-700">{{ lastResult.registrationCode }}</p>
           <dl class="mt-4 grid gap-3 text-sm">
             <div><dt class="font-semibold text-slate-500">Email</dt><dd class="text-slate-900">{{ lastResult.email }}</dd></div>
-            <div><dt class="font-semibold text-slate-500">Region / HEI</dt><dd class="text-slate-900">{{ lastResult.region }} · {{ lastResult.hei }}</dd></div>
+            <div><dt class="font-semibold text-slate-500">Region / Affiliation</dt><dd class="text-slate-900">{{ [lastResult.region, lastResult.affiliation || lastResult.hei].filter(Boolean).join(' · ') }}</dd></div>
             <div><dt class="font-semibold text-slate-500">Participant Type</dt><dd class="text-slate-900">{{ lastResult.participantType }}</dd></div>
             <div><dt class="font-semibold text-slate-500">Check-in Time</dt><dd class="text-slate-900">{{ lastResult.checkInAt || '—' }}</dd></div>
           </dl>
@@ -304,7 +304,7 @@ onBeforeUnmount(() => stopScanner())
               <p class="text-sm font-bold text-slate-950">{{ row.fullName }}</p>
               <p class="mt-1 font-mono text-xs font-semibold text-slate-600">{{ row.registrationCode }}</p>
               <p class="mt-2 text-xs text-slate-500">{{ row.timestamp }} · {{ row.method }}</p>
-              <p class="mt-1 text-xs text-slate-600">{{ row.region }} · {{ row.hei }}</p>
+              <p class="mt-1 text-xs text-slate-600">{{ [row.region, row.affiliation || row.hei].filter(Boolean).join(' · ') }}</p>
             </div>
           </div>
           <button class="mt-5 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-950" @click="logoutAdmin">Logout</button>

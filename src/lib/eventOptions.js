@@ -3,10 +3,51 @@ export const SEX_OPTIONS = ['Male', 'Female']
 export const ACCOMMODATION_OPTIONS = ['Yes', 'No']
 
 export const PARTICIPANT_TYPES = [
-  'Faculty',
+  'SAS Practitioner/Guidance/Faculty',
   'Student',
   'CHED Regional Office',
+  'CHED Central Office',
+  'Resource Person/Facilitator/Moderator',
   'Other',
+]
+
+export const CHEDRO_OFFICES = [
+  'CHEDRO I',
+  'CHEDRO II',
+  'CHEDRO III',
+  'CHEDRO IV',
+  'CHEDRO V',
+  'CHEDRO VI',
+  'CHEDRO VII',
+  'CHEDRO VIII',
+  'CHEDRO IX',
+  'CHEDRO X',
+  'CHEDRO XI',
+  'CHEDRO XII',
+  'CHEDRO NCR',
+  'CHEDRO NIR',
+  'CHEDRO CAR',
+  'CHEDRO CARAGA',
+  'CHEDRO MIMAROPA',
+]
+
+export const CHEDCO_OFFICES = [
+  'Office of Student Development and Services',
+  'AFMS',
+  'GAD',
+  'HEDFS',
+  'IAS',
+  'LLS',
+  'OCC - Chairman',
+  'OCC - Comm. Apag III',
+  'OCC - Comm. Aquino',
+  'OCC - Comm. Mallari',
+  'OCC - Comm. Ong',
+  'OED',
+  'OIQAG',
+  'OPRKM',
+  'OPSD',
+  'UNIFAST',
 ]
 
 export const FOOD_RESTRICTION_OPTIONS = [

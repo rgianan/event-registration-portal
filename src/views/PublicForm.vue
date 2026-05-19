@@ -5,13 +5,15 @@ import {
   ACCOMMODATION_OPTIONS,
   BREAKOUT_SESSION_1_OPTIONS,
   BREAKOUT_SESSION_4_OPTIONS,
+  CHEDCO_OFFICES,
+  CHEDRO_OFFICES,
   FOOD_RESTRICTION_OPTIONS,
   PARTICIPANT_TYPES,
   SEX_OPTIONS,
 } from '../lib/eventOptions.js'
 
 const submitting = ref(false)
-const loadingHeiOptions = ref(false)
+const loadingAffiliationOptions = ref(false)
 const submitError = ref('')
 const submitSuccess = ref('')
 const registrationCode = ref('')
@@ -22,26 +24,40 @@ const turnstileWidgetId = ref(null)
 const turnstileHost = ref(null)
 const heiOptions = ref([])
 const regionOptions = ref([])
-const heiOptionsError = ref('')
+const chedroOptions = ref([...CHEDRO_OFFICES])
+const chedcoOptions = ref([...CHEDCO_OFFICES])
+const affiliationOptionsError = ref('')
 let startedAt = Date.now()
 
+const SAS_PARTICIPANT = 'SAS Practitioner/Guidance/Faculty'
+const STUDENT_PARTICIPANT = 'Student'
+const CHEDRO_PARTICIPANT = 'CHED Regional Office'
+const CHEDCO_PARTICIPANT = 'CHED Central Office'
+const RESOURCE_PARTICIPANT = 'Resource Person/Facilitator/Moderator'
+
 const form = reactive({
+  participantType: '',
+  participantTypeOther: '',
+  currentDesignation: '',
+  region: '',
+  hei: '',
+  chedroOffice: '',
+  chedcoOffice: '',
+  resourceAffiliation: '',
+  transportationFromChedToTagaytay: false,
   email: '',
   firstName: '',
   middleInitial: '',
   lastName: '',
   nickName: '',
   sexAtBirth: '',
-  region: '',
-  hei: '',
   contactNumber: '',
   foodRestrictions: [],
   foodRestrictionOther: '',
   emergencyContact: '',
   accommodation: '',
-  participantType: '',
-  participantTypeOther: '',
-  currentDesignation: '',
+  accommodationCheckInDate: '',
+  accommodationCheckOutDate: '',
   breakoutSession1: '',
   breakoutSession4: '',
   privacyConsent: false,
@@ -53,8 +69,16 @@ const fullName = computed(() => [form.firstName, form.middleInitial, form.lastNa
 const turnstileEnabled = computed(() => !!TURNSTILE_SITE_KEY)
 const selectedOtherFood = computed(() => form.foodRestrictions.includes('Other'))
 const selectedNaFood = computed(() => form.foodRestrictions.includes('N/A'))
-const facultySelected = computed(() => form.participantType === 'Faculty')
+const sasParticipantSelected = computed(() => form.participantType === SAS_PARTICIPANT)
+const studentSelected = computed(() => form.participantType === STUDENT_PARTICIPANT)
+const heiAffiliationSelected = computed(() => sasParticipantSelected.value || studentSelected.value)
+const chedroSelected = computed(() => form.participantType === CHEDRO_PARTICIPANT)
+const chedcoSelected = computed(() => form.participantType === CHEDCO_PARTICIPANT)
+const resourceSelected = computed(() => form.participantType === RESOURCE_PARTICIPANT)
 const otherParticipantSelected = computed(() => form.participantType === 'Other')
+const transportationEligible = computed(() => chedroSelected.value || chedcoSelected.value || resourceSelected.value)
+const accommodationYes = computed(() => form.accommodation === 'Yes')
+
 const normalizeRegionOption = (option) => {
   if (typeof option === 'string') return { value: option, label: option, count: 0 }
   return {
@@ -74,6 +98,14 @@ const filteredHeiOptions = computed(() => {
 })
 const heiSelectDisabled = computed(() => !form.region || filteredHeiOptions.value.length === 0)
 const heiMasterLoaded = computed(() => regionSelectOptions.value.length > 0 && heiOptions.value.length > 0)
+
+const selectedAffiliation = computed(() => {
+  if (heiAffiliationSelected.value) return form.hei.trim()
+  if (chedroSelected.value) return form.chedroOffice.trim()
+  if (chedcoSelected.value) return form.chedcoOffice.trim()
+  if (resourceSelected.value || otherParticipantSelected.value) return form.resourceAffiliation.trim()
+  return ''
+})
 
 function resetTurnstile() {
   turnstileToken.value = ''
@@ -148,19 +180,28 @@ function toggleFoodRestriction(option) {
 
 function validateForm() {
   const missing = []
+  if (!form.participantType) missing.push('Participant type')
+  if (sasParticipantSelected.value && !form.currentDesignation.trim()) missing.push('Current designation')
+  if (otherParticipantSelected.value && !form.participantTypeOther.trim()) missing.push('Participant type - Other')
+
+  if (heiAffiliationSelected.value) {
+    if (!form.region.trim()) missing.push('Region')
+    if (!form.hei.trim()) missing.push('Higher Education Institution')
+  }
+  if (chedroSelected.value && !form.chedroOffice.trim()) missing.push('CHED Regional Office')
+  if (chedcoSelected.value && !form.chedcoOffice.trim()) missing.push('CHED Central Office')
+  if (resourceSelected.value && !form.resourceAffiliation.trim()) missing.push('Resource Person/Facilitator/Moderator affiliation')
+
   if (!form.email.trim()) missing.push('Email address')
   if (!form.firstName.trim()) missing.push('First name')
   if (!form.lastName.trim()) missing.push('Last name')
   if (!form.sexAtBirth) missing.push('Assigned sex at birth')
-  if (!form.region.trim()) missing.push('Region')
-  if (!form.hei.trim()) missing.push('Higher Education Institution')
   if (!form.contactNumber.trim()) missing.push('Contact number')
   if (!form.foodRestrictions.length) missing.push('Food restrictions')
   if (!form.emergencyContact.trim()) missing.push('Emergency contact')
   if (!form.accommodation) missing.push('Accommodation choice')
-  if (!form.participantType) missing.push('Participant type')
-  if (facultySelected.value && !form.currentDesignation.trim()) missing.push('Current designation')
-  if (otherParticipantSelected.value && !form.participantTypeOther.trim()) missing.push('Participant type - Other')
+  if (accommodationYes.value && !form.accommodationCheckInDate) missing.push('Accommodation check-in date')
+  if (accommodationYes.value && !form.accommodationCheckOutDate) missing.push('Accommodation check-out date')
   if (selectedOtherFood.value && !form.foodRestrictionOther.trim()) missing.push('Food restrictions - Other')
   if (!form.breakoutSession1) missing.push('Breakout Session 1')
   if (!form.breakoutSession4) missing.push('Breakout Session 4')
@@ -178,20 +219,34 @@ function validateForm() {
     submitError.value = 'Choose either N/A or specific food restrictions, not both.'
     return false
   }
+  if (accommodationYes.value && form.accommodationCheckOutDate < form.accommodationCheckInDate) {
+    submitError.value = 'Accommodation check-out date cannot be earlier than check-in date.'
+    return false
+  }
   if (!API_URL) {
     submitError.value = 'Missing VITE_GAS_WEB_APP_URL.'
     return false
   }
-  if (!heiMasterLoaded.value) {
-    submitError.value = 'HEI master list is not loaded. Check the HEI_List sheet and backend deployment.'
+  if (heiAffiliationSelected.value) {
+    if (!heiMasterLoaded.value) {
+      submitError.value = 'HEI master list is not loaded. Check the HEI_List sheet and backend deployment.'
+      return false
+    }
+    if (!regionSelectOptions.value.some((option) => option.value === form.region)) {
+      submitError.value = 'Select a valid Region from the HEI master list.'
+      return false
+    }
+    if (!filteredHeiOptions.value.some((hei) => hei.name === form.hei)) {
+      submitError.value = 'Select a valid HEI under the selected Region.'
+      return false
+    }
+  }
+  if (chedroSelected.value && !chedroOptions.value.includes(form.chedroOffice)) {
+    submitError.value = 'Select a valid CHED Regional Office.'
     return false
   }
-  if (!regionSelectOptions.value.some((option) => option.value === form.region)) {
-    submitError.value = 'Select a valid Region from the HEI master list.'
-    return false
-  }
-  if (!filteredHeiOptions.value.some((hei) => hei.name === form.hei)) {
-    submitError.value = 'Select a valid HEI under the selected Region.'
+  if (chedcoSelected.value && !chedcoOptions.value.includes(form.chedcoOffice)) {
+    submitError.value = 'Select a valid CHED Central Office.'
     return false
   }
   if (turnstileEnabled.value && !turnstileToken.value) {
@@ -203,22 +258,28 @@ function validateForm() {
 
 function resetForm() {
   Object.assign(form, {
+    participantType: '',
+    participantTypeOther: '',
+    currentDesignation: '',
+    region: '',
+    hei: '',
+    chedroOffice: '',
+    chedcoOffice: '',
+    resourceAffiliation: '',
+    transportationFromChedToTagaytay: false,
     email: '',
     firstName: '',
     middleInitial: '',
     lastName: '',
     nickName: '',
     sexAtBirth: '',
-    region: '',
-    hei: '',
     contactNumber: '',
     foodRestrictions: [],
     foodRestrictionOther: '',
     emergencyContact: '',
     accommodation: '',
-    participantType: '',
-    participantTypeOther: '',
-    currentDesignation: '',
+    accommodationCheckInDate: '',
+    accommodationCheckOutDate: '',
     breakoutSession1: '',
     breakoutSession4: '',
     privacyConsent: false,
@@ -235,22 +296,29 @@ async function submitForm() {
   try {
     const data = await postJson({
       action: 'submit',
+      participantType: form.participantType,
+      participantTypeOther: form.participantTypeOther.trim(),
+      currentDesignation: form.currentDesignation.trim(),
+      region: form.region.trim(),
+      hei: form.hei.trim(),
+      affiliation: selectedAffiliation.value,
+      chedroOffice: form.chedroOffice.trim(),
+      chedcoOffice: form.chedcoOffice.trim(),
+      resourceAffiliation: form.resourceAffiliation.trim(),
+      transportationFromChedToTagaytay: !!form.transportationFromChedToTagaytay,
       email: form.email.trim(),
       firstName: form.firstName.trim(),
       middleInitial: form.middleInitial.trim(),
       lastName: form.lastName.trim(),
       nickName: form.nickName.trim(),
       sexAtBirth: form.sexAtBirth,
-      region: form.region.trim(),
-      hei: form.hei.trim(),
       contactNumber: form.contactNumber.trim(),
       foodRestrictions: form.foodRestrictions,
       foodRestrictionOther: form.foodRestrictionOther.trim(),
       emergencyContact: form.emergencyContact.trim(),
       accommodation: form.accommodation,
-      participantType: form.participantType,
-      participantTypeOther: form.participantTypeOther.trim(),
-      currentDesignation: form.currentDesignation.trim(),
+      accommodationCheckInDate: form.accommodationCheckInDate,
+      accommodationCheckOutDate: form.accommodationCheckOutDate,
       breakoutSession1: form.breakoutSession1,
       breakoutSession4: form.breakoutSession4,
       privacyConsent: form.privacyConsent,
@@ -279,10 +347,10 @@ async function submitForm() {
   }
 }
 
-async function fetchHeiOptions() {
+async function fetchAffiliationOptions() {
   if (!API_URL) return
-  loadingHeiOptions.value = true
-  heiOptionsError.value = ''
+  loadingAffiliationOptions.value = true
+  affiliationOptionsError.value = ''
   try {
     const data = await postJson({ action: 'getHeiOptions' })
     heiOptions.value = Array.isArray(data.heis)
@@ -300,30 +368,49 @@ async function fetchHeiOptions() {
     regionOptions.value = Array.isArray(data.regions)
       ? data.regions.map(normalizeRegionOption).filter((option) => option.value)
       : []
+    chedroOptions.value = Array.isArray(data.chedroOffices) && data.chedroOffices.length ? data.chedroOffices.map(String).filter(Boolean) : [...CHEDRO_OFFICES]
+    chedcoOptions.value = Array.isArray(data.chedcoOffices) && data.chedcoOffices.length ? data.chedcoOffices.map(String).filter(Boolean) : [...CHEDCO_OFFICES]
     if (!regionOptions.value.length || !heiOptions.value.length) {
-      heiOptionsError.value = data.message || 'No HEI master list rows were loaded.'
+      affiliationOptionsError.value = data.message || 'No HEI master list rows were loaded.'
     }
   } catch (err) {
     heiOptions.value = []
     regionOptions.value = []
-    heiOptionsError.value = err?.message || 'Unable to load the HEI master list.'
+    chedroOptions.value = [...CHEDRO_OFFICES]
+    chedcoOptions.value = [...CHEDCO_OFFICES]
+    affiliationOptionsError.value = err?.message || 'Unable to load the affiliation master lists.'
   } finally {
-    loadingHeiOptions.value = false
+    loadingAffiliationOptions.value = false
   }
 }
 
 watch(() => form.participantType, () => {
-  if (!facultySelected.value) form.currentDesignation = ''
+  if (!sasParticipantSelected.value) form.currentDesignation = ''
   if (!otherParticipantSelected.value) form.participantTypeOther = ''
+  if (!heiAffiliationSelected.value) {
+    form.region = ''
+    form.hei = ''
+  }
+  if (!chedroSelected.value) form.chedroOffice = ''
+  if (!chedcoSelected.value) form.chedcoOffice = ''
+  if (!resourceSelected.value && !otherParticipantSelected.value) form.resourceAffiliation = ''
+  if (!transportationEligible.value) form.transportationFromChedToTagaytay = false
 })
 
 watch(() => form.region, () => {
   form.hei = ''
 })
 
+watch(() => form.accommodation, () => {
+  if (!accommodationYes.value) {
+    form.accommodationCheckInDate = ''
+    form.accommodationCheckOutDate = ''
+  }
+})
+
 onMounted(() => {
   ensureTurnstileLoaded()
-  fetchHeiOptions()
+  fetchAffiliationOptions()
 })
 
 watch(turnstileHost, () => {
@@ -340,6 +427,88 @@ watch(turnstileHost, () => {
 
     <form class="space-y-6" @submit.prevent="submitForm">
       <input v-model="form.website" type="text" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true" />
+
+      <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
+        <h3 class="text-lg font-semibold text-slate-900">Participant profile</h3>
+        <div class="mt-4 grid gap-5 md:grid-cols-2">
+          <div>
+            <label class="mb-2 block text-sm font-medium text-slate-700">Participant Type</label>
+            <select v-model="form.participantType" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
+              <option value="" disabled>Select participant type</option>
+              <option v-for="option in PARTICIPANT_TYPES" :key="option" :value="option">{{ option }}</option>
+            </select>
+          </div>
+          <div v-if="otherParticipantSelected">
+            <label class="mb-2 block text-sm font-medium text-slate-700">Other participant type</label>
+            <input v-model="form.participantTypeOther" type="text" placeholder="Specify participant type" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+          </div>
+          <div v-if="sasParticipantSelected">
+            <label class="mb-2 block text-sm font-medium text-slate-700">State your current designation in your HEI</label>
+            <input v-model="form.currentDesignation" type="text" placeholder="e.g., Guidance Counselor, Dean, Faculty Member" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+          </div>
+        </div>
+
+        <div v-if="heiAffiliationSelected" class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h4 class="font-semibold text-slate-900">Institution details</h4>
+              <p class="mt-1 text-sm text-slate-600">Select Region first, then choose only from HEIs under that Region.</p>
+            </div>
+            <p class="text-xs text-slate-500">{{ loadingAffiliationOptions ? 'Loading HEI options…' : `${regionSelectOptions.length} regions / ${heiOptions.length} HEIs loaded` }}</p>
+          </div>
+
+          <div class="mt-4 grid gap-5 md:grid-cols-2">
+            <div>
+              <label class="mb-2 block text-sm font-medium text-slate-700">Region</label>
+              <select v-model="form.region" :disabled="loadingAffiliationOptions || !regionSelectOptions.length" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
+                <option value="" disabled>{{ loadingAffiliationOptions ? 'Loading regions…' : 'Select region' }}</option>
+                <option v-for="option in regionSelectOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}{{ option.count ? ` (${option.count} HEIs)` : '' }}
+                </option>
+              </select>
+              <p v-if="affiliationOptionsError" class="mt-2 text-sm text-rose-600">{{ affiliationOptionsError }}</p>
+            </div>
+            <div>
+              <label class="mb-2 block text-sm font-medium text-slate-700">Higher Education Institution</label>
+              <select v-model="form.hei" :disabled="heiSelectDisabled" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
+                <option value="" disabled>{{ !form.region ? 'Select region first' : filteredHeiOptions.length ? 'Select HEI' : 'No HEIs under this region' }}</option>
+                <option v-for="hei in filteredHeiOptions" :key="`${hei.region}-${hei.name}`" :value="hei.name">
+                  {{ hei.name }}
+                </option>
+              </select>
+              <p v-if="form.region" class="mt-2 text-sm text-slate-500">
+                Showing {{ filteredHeiOptions.length }} HEIs under {{ selectedRegionLabel }}.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="chedroSelected" class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+          <label class="mb-2 block text-sm font-medium text-slate-700">CHED Regional Office</label>
+          <select v-model="form.chedroOffice" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
+            <option value="" disabled>Select CHED Regional Office</option>
+            <option v-for="office in chedroOptions" :key="office" :value="office">{{ office }}</option>
+          </select>
+        </div>
+
+        <div v-if="chedcoSelected" class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+          <label class="mb-2 block text-sm font-medium text-slate-700">CHED Central Office</label>
+          <select v-model="form.chedcoOffice" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
+            <option value="" disabled>Select CHED Central Office</option>
+            <option v-for="office in chedcoOptions" :key="office" :value="office">{{ office }}</option>
+          </select>
+        </div>
+
+        <div v-if="resourceSelected || otherParticipantSelected" class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+          <label class="mb-2 block text-sm font-medium text-slate-700">{{ resourceSelected ? 'Resource Person/Facilitator/Moderator affiliation' : 'Affiliation / Office / Organization' }}</label>
+          <input v-model="form.resourceAffiliation" type="text" :placeholder="resourceSelected ? 'State office, agency, organization, or affiliation' : 'Optional affiliation, office, or organization'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+        </div>
+
+        <label v-if="transportationEligible" class="mt-5 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+          <input v-model="form.transportationFromChedToTagaytay" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
+          <span>Transportation from CHED to Tagaytay Venue</span>
+        </label>
+      </div>
 
       <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
         <h3 class="text-lg font-semibold text-slate-900">Personal information</h3>
@@ -390,41 +559,6 @@ watch(turnstileHost, () => {
       </div>
 
       <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
-        <div class="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-          <div>
-            <h3 class="text-lg font-semibold text-slate-900">Institution details</h3>
-            <p class="mt-1 text-sm text-slate-600">Select Region first, then choose only from HEIs under that Region.</p>
-          </div>
-          <p class="text-xs text-slate-500">{{ loadingHeiOptions ? 'Loading HEI options…' : `${regionSelectOptions.length} regions / ${heiOptions.length} HEIs loaded` }}</p>
-        </div>
-
-        <div class="mt-4 grid gap-5 md:grid-cols-2">
-          <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">Region</label>
-            <select v-model="form.region" :disabled="loadingHeiOptions || !regionSelectOptions.length" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
-              <option value="" disabled>{{ loadingHeiOptions ? 'Loading regions…' : 'Select region' }}</option>
-              <option v-for="option in regionSelectOptions" :key="option.value" :value="option.value">
-                {{ option.label }}{{ option.count ? ` (${option.count} HEIs)` : '' }}
-              </option>
-            </select>
-            <p v-if="heiOptionsError" class="mt-2 text-sm text-rose-600">{{ heiOptionsError }}</p>
-          </div>
-          <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">Higher Education Institution</label>
-            <select v-model="form.hei" :disabled="heiSelectDisabled" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
-              <option value="" disabled>{{ !form.region ? 'Select region first' : filteredHeiOptions.length ? 'Select HEI' : 'No HEIs under this region' }}</option>
-              <option v-for="hei in filteredHeiOptions" :key="`${hei.region}-${hei.uii || hei.name}`" :value="hei.name">
-                {{ hei.name }}
-              </option>
-            </select>
-            <p v-if="form.region" class="mt-2 text-sm text-slate-500">
-              Showing {{ filteredHeiOptions.length }} HEIs under {{ selectedRegionLabel }}.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
         <h3 class="text-lg font-semibold text-slate-900">Logistics and emergency details</h3>
         <div class="mt-4 grid gap-5 md:grid-cols-2">
           <div>
@@ -449,27 +583,16 @@ watch(turnstileHost, () => {
                 <option v-for="option in ACCOMMODATION_OPTIONS" :key="option" :value="option">{{ option }}</option>
               </select>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
-        <h3 class="text-lg font-semibold text-slate-900">Participant profile</h3>
-        <div class="mt-4 grid gap-5 md:grid-cols-2">
-          <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">Participant Type</label>
-            <select v-model="form.participantType" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
-              <option value="" disabled>Select participant type</option>
-              <option v-for="option in PARTICIPANT_TYPES" :key="option" :value="option">{{ option }}</option>
-            </select>
-          </div>
-          <div v-if="otherParticipantSelected">
-            <label class="mb-2 block text-sm font-medium text-slate-700">Other participant type</label>
-            <input v-model="form.participantTypeOther" type="text" placeholder="Specify participant type" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
-          </div>
-          <div v-if="facultySelected">
-            <label class="mb-2 block text-sm font-medium text-slate-700">State your current designation in your HEI</label>
-            <input v-model="form.currentDesignation" type="text" placeholder="e.g., Guidance Counselor, Dean, Faculty Member" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+            <div v-if="accommodationYes" class="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">Date of check-in</label>
+                <input v-model="form.accommodationCheckInDate" type="date" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">Date of check-out</label>
+                <input v-model="form.accommodationCheckOutDate" type="date" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -502,7 +625,7 @@ watch(turnstileHost, () => {
       <label class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
         <input v-model="form.privacyConsent" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
         <span>
-          I consent to the collection, processing, storage, use, and retention of my personal data in accordance with Republic Act No. 10173, or the Data Privacy Act of 2012, and its implementing rules and regulations, for event registration, identity and attendance verification, food and accommodation planning, emergency coordination, and related administrative reporting.
+          I consent to the collection, use, processing, storage, retention, and disposal of my personal data by the Commission on Higher Education and/or its authorized event organizers, in accordance with Republic Act No. 10173, or the Data Privacy Act of 2012, and its implementing rules and regulations, for purposes of event registration, identity and attendance verification, food and accommodation planning, transportation coordination when applicable, emergency coordination, and related administrative documentation and reporting.
         </span>
       </label>
 
