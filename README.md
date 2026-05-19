@@ -5,13 +5,15 @@ This project has been restructured from a document-intake checklist into an even
 ## What it does
 
 ### Public registration form
-- Collects participant profile first, then personal information, conditional affiliation details, food restrictions, emergency contact, accommodation details, two-way transportation requests when applicable, and topic choices.
+- Collects participant profile first, then personal information including emergency contact, conditional affiliation details, food restrictions, accommodation details, two-way transportation requests when applicable, and topic choices.
 - Enforces required fields on the frontend and backend.
 - Accepts only one registration per email address.
 - Generates a unique 16-character alphanumeric registration code.
 - Shows a QR code immediately after successful submission.
 - Sends the registration code and QR code to the participant by email.
 - Supports optional Cloudflare Turnstile verification.
+- Saves timestamps using Singapore Standard Time (`Asia/Singapore`).
+- Automatically assigns accommodation dates of 02 June 2026 to 05 June 2026 for Student and SAS Practitioner/Guidance/Faculty participants who answer Yes to accommodation.
 
 ### Admin dashboard
 - Admin-key protected dashboard.
@@ -33,7 +35,7 @@ This project has been restructured from a document-intake checklist into an even
 
 ## Main files
 
-- `src/views/PublicForm.vue` — event registration form with conditional affiliation fields: Region → HEI for Student/SAS participants, CHEDRO/CHEDCO office dropdowns, and resource-person affiliation textbox.
+- `src/views/PublicForm.vue` — event registration form with conditional affiliation fields: Region → HEI for Student/SAS participants, CHEDRO/CHEDCO office dropdowns, and resource-person affiliation textbox plus current designation.
 - `src/views/AdminDashboard.vue` — admin registration dashboard.
 - `src/views/AdminCheckIn.vue` — protected onsite QR scanner and manual check-in module.
 - `src/lib/eventOptions.js` — frontend options for food restrictions, participant types, CHEDRO/CHEDCO office fallbacks, and topic options.

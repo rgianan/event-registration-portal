@@ -79,6 +79,10 @@ const resourceSelected = computed(() => form.participantType === RESOURCE_PARTIC
 const otherParticipantSelected = computed(() => form.participantType === 'Other')
 const transportationEligible = computed(() => chedroSelected.value || chedcoSelected.value || resourceSelected.value)
 const accommodationYes = computed(() => form.accommodation === 'Yes')
+const fixedAccommodationEligible = computed(() => studentSelected.value || sasParticipantSelected.value)
+const showAccommodationDateFields = computed(() => accommodationYes.value && !fixedAccommodationEligible.value)
+const fixedAccommodationCheckInDate = '2026-06-02'
+const fixedAccommodationCheckOutDate = '2026-06-05'
 
 const normalizeRegionOption = (option) => {
   if (typeof option === 'string') return { value: option, label: option, count: 0 }
@@ -182,7 +186,7 @@ function toggleFoodRestriction(option) {
 function validateForm() {
   const missing = []
   if (!form.participantType) missing.push('Participant type')
-  if (sasParticipantSelected.value && !form.currentDesignation.trim()) missing.push('Current designation')
+  if ((sasParticipantSelected.value || resourceSelected.value) && !form.currentDesignation.trim()) missing.push('Current designation')
   if (otherParticipantSelected.value && !form.participantTypeOther.trim()) missing.push('Participant type - Other')
 
   if (heiAffiliationSelected.value) {
@@ -201,8 +205,8 @@ function validateForm() {
   if (!form.foodRestrictions.length) missing.push('Food restrictions')
   if (!form.emergencyContact.trim()) missing.push('Emergency contact')
   if (!form.accommodation) missing.push('Accommodation choice')
-  if (accommodationYes.value && !form.accommodationCheckInDate) missing.push('Accommodation check-in date')
-  if (accommodationYes.value && !form.accommodationCheckOutDate) missing.push('Accommodation check-out date')
+  if (showAccommodationDateFields.value && !form.accommodationCheckInDate) missing.push('Accommodation check-in date')
+  if (showAccommodationDateFields.value && !form.accommodationCheckOutDate) missing.push('Accommodation check-out date')
   if (selectedOtherFood.value && !form.foodRestrictionOther.trim()) missing.push('Food restrictions - Other')
   if (!form.breakoutSession1) missing.push('Topic 1')
   if (!form.breakoutSession4) missing.push('Topic 4')
@@ -220,7 +224,7 @@ function validateForm() {
     submitError.value = 'Choose either N/A or specific food restrictions, not both.'
     return false
   }
-  if (accommodationYes.value && form.accommodationCheckOutDate < form.accommodationCheckInDate) {
+  if (showAccommodationDateFields.value && form.accommodationCheckOutDate < form.accommodationCheckInDate) {
     submitError.value = 'Accommodation check-out date cannot be earlier than check-in date.'
     return false
   }
@@ -320,8 +324,8 @@ async function submitForm() {
       foodRestrictionOther: form.foodRestrictionOther.trim(),
       emergencyContact: form.emergencyContact.trim(),
       accommodation: form.accommodation,
-      accommodationCheckInDate: form.accommodationCheckInDate,
-      accommodationCheckOutDate: form.accommodationCheckOutDate,
+      accommodationCheckInDate: accommodationYes.value && fixedAccommodationEligible.value ? fixedAccommodationCheckInDate : form.accommodationCheckInDate,
+      accommodationCheckOutDate: accommodationYes.value && fixedAccommodationEligible.value ? fixedAccommodationCheckOutDate : form.accommodationCheckOutDate,
       breakoutSession1: form.breakoutSession1,
       breakoutSession4: form.breakoutSession4,
       privacyConsent: form.privacyConsent,
@@ -388,7 +392,7 @@ async function fetchAffiliationOptions() {
 }
 
 watch(() => form.participantType, () => {
-  if (!sasParticipantSelected.value) form.currentDesignation = ''
+  if (!sasParticipantSelected.value && !resourceSelected.value) form.currentDesignation = ''
   if (!otherParticipantSelected.value) form.participantTypeOther = ''
   if (!heiAffiliationSelected.value) {
     form.region = ''
@@ -407,12 +411,23 @@ watch(() => form.region, () => {
   form.hei = ''
 })
 
-watch(() => form.accommodation, () => {
+function syncAccommodationDates() {
   if (!accommodationYes.value) {
     form.accommodationCheckInDate = ''
     form.accommodationCheckOutDate = ''
+    return
   }
-})
+  if (fixedAccommodationEligible.value) {
+    form.accommodationCheckInDate = fixedAccommodationCheckInDate
+    form.accommodationCheckOutDate = fixedAccommodationCheckOutDate
+    return
+  }
+  if (form.accommodationCheckInDate === fixedAccommodationCheckInDate) form.accommodationCheckInDate = ''
+  if (form.accommodationCheckOutDate === fixedAccommodationCheckOutDate) form.accommodationCheckOutDate = ''
+}
+
+watch(() => form.accommodation, syncAccommodationDates)
+watch(() => form.participantType, syncAccommodationDates)
 
 onMounted(() => {
   ensureTurnstileLoaded()
@@ -448,9 +463,9 @@ watch(turnstileHost, () => {
             <label class="mb-2 block text-sm font-medium text-slate-700">Other participant type</label>
             <input v-model="form.participantTypeOther" type="text" placeholder="Specify participant type" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
           </div>
-          <div v-if="sasParticipantSelected">
-            <label class="mb-2 block text-sm font-medium text-slate-700">State your current designation in your HEI</label>
-            <input v-model="form.currentDesignation" type="text" placeholder="e.g., Guidance Counselor, Dean, Faculty Member" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+          <div v-if="sasParticipantSelected || resourceSelected">
+            <label class="mb-2 block text-sm font-medium text-slate-700">{{ sasParticipantSelected ? 'State your current designation in your HEI' : 'State your current designation' }}</label>
+            <input v-model="form.currentDesignation" type="text" :placeholder="sasParticipantSelected ? 'e.g., Guidance Counselor, Dean, Faculty Member' : 'e.g., Resource Person, Facilitator, Moderator, Director'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
           </div>
         </div>
 
@@ -557,10 +572,15 @@ watch(turnstileHost, () => {
         <div v-if="fullName" class="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
           <span class="font-semibold text-slate-900">Full name preview:</span> {{ fullName }}
         </div>
+
+        <div class="mt-5">
+          <label class="mb-2 block text-sm font-medium text-slate-700">Person to contact in case of emergency and their contact number</label>
+          <textarea v-model="form.emergencyContact" rows="4" placeholder="Juan Dela Cruz / 09XX-XXX-XXXX" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900"></textarea>
+        </div>
       </div>
 
       <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
-        <h3 class="text-lg font-semibold text-slate-900">Logistics and emergency details</h3>
+        <h3 class="text-lg font-semibold text-slate-900">Logistics and Dietary Restrictions</h3>
         <div class="mt-4 grid gap-5 md:grid-cols-2">
           <div>
             <label class="mb-2 block text-sm font-medium text-slate-700">Food Restrictions</label>
@@ -574,17 +594,13 @@ watch(turnstileHost, () => {
           </div>
           <div class="space-y-5">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">Person to contact in case of emergency and their contact number</label>
-              <textarea v-model="form.emergencyContact" rows="4" placeholder="Juan Dela Cruz / 09XX-XXX-XXXX" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900"></textarea>
-            </div>
-            <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">Will avail accommodation?</label>
               <select v-model="form.accommodation" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
                 <option value="" disabled>Select option</option>
                 <option v-for="option in ACCOMMODATION_OPTIONS" :key="option" :value="option">{{ option }}</option>
               </select>
             </div>
-            <div v-if="accommodationYes" class="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+            <div v-if="showAccommodationDateFields" class="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
               <div>
                 <label class="mb-2 block text-sm font-medium text-slate-700">Date of check-in</label>
                 <input v-model="form.accommodationCheckInDate" type="date" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
@@ -594,16 +610,19 @@ watch(turnstileHost, () => {
                 <input v-model="form.accommodationCheckOutDate" type="date" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
               </div>
             </div>
+            <p v-if="accommodationYes && fixedAccommodationEligible" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              Accommodation dates are automatically set to 02 June 2026 check-in and 05 June 2026 check-out.
+            </p>
             <div v-if="transportationEligible" class="rounded-2xl border border-slate-200 bg-white p-4">
-              <p class="mb-3 text-sm font-semibold text-slate-900">Transportation request</p>
+              <p class="mb-3 text-sm font-semibold text-slate-900">Will join transportation</p>
               <div class="grid gap-3">
                 <label class="flex items-start gap-3 text-sm text-slate-700">
                   <input v-model="form.transportationFromChedToTagaytay" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
-                  <span>Transportation from CHED to Tagaytay Venue</span>
+                  <span>CHED to Tagaytay Venue 02 June 2026, 2:00PM</span>
                 </label>
                 <label class="flex items-start gap-3 text-sm text-slate-700">
                   <input v-model="form.transportationFromTagaytayToChed" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
-                  <span>Transportation from Tagaytay Venue to CHED</span>
+                  <span>Tagaytay Venue to CHED 05 June 2026, 10:00AM</span>
                 </label>
               </div>
             </div>

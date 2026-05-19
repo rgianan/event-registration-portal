@@ -27,6 +27,7 @@ var STATUS_REGISTERED = 'REGISTERED';
 var CHECKIN_STATUS_CHECKED_IN = 'CHECKED_IN';
 var CHECKIN_STATUS_NOT_CHECKED_IN = 'NOT_CHECKED_IN';
 var EMAIL_PENDING = 'PENDING';
+var APP_TIME_ZONE = 'Asia/Singapore';
 
 var SEX_OPTIONS = ['Male', 'Female'];
 var ACCOMMODATION_OPTIONS = ['Yes', 'No'];
@@ -242,8 +243,10 @@ function sanitizeRegistration_(payload) {
   if (ACCOMMODATION_OPTIONS.indexOf(row.accommodation) === -1) throw new Error('Invalid accommodation value.');
   if (PARTICIPANT_TYPES.indexOf(row.participantType) === -1) throw new Error('Invalid participant type.');
 
-  if (row.participantType === 'SAS Practitioner/Guidance/Faculty' && !row.currentDesignation) throw new Error('Current designation is required for SAS Practitioner/Guidance/Faculty participants.');
-  if (row.participantType !== 'SAS Practitioner/Guidance/Faculty') row.currentDesignation = '';
+  if ((row.participantType === 'SAS Practitioner/Guidance/Faculty' || row.participantType === 'Resource Person/Facilitator/Moderator') && !row.currentDesignation) {
+    throw new Error('Current designation is required for SAS Practitioner/Guidance/Faculty and Resource Person/Facilitator/Moderator participants.');
+  }
+  if (row.participantType !== 'SAS Practitioner/Guidance/Faculty' && row.participantType !== 'Resource Person/Facilitator/Moderator') row.currentDesignation = '';
   if (row.participantType === 'Other' && !row.participantTypeOther) throw new Error('Specify the other participant type.');
   if (row.participantType !== 'Other') row.participantTypeOther = '';
 
@@ -255,9 +258,14 @@ function sanitizeRegistration_(payload) {
   }
 
   if (row.accommodation === 'Yes') {
-    if (!row.accommodationCheckInDate) throw new Error('Accommodation check-in date is required.');
-    if (!row.accommodationCheckOutDate) throw new Error('Accommodation check-out date is required.');
-    if (row.accommodationCheckOutDate < row.accommodationCheckInDate) throw new Error('Accommodation check-out date cannot be earlier than check-in date.');
+    if (HEI_PARTICIPANT_TYPES.indexOf(row.participantType) !== -1) {
+      row.accommodationCheckInDate = '2026-06-02';
+      row.accommodationCheckOutDate = '2026-06-05';
+    } else {
+      if (!row.accommodationCheckInDate) throw new Error('Accommodation check-in date is required.');
+      if (!row.accommodationCheckOutDate) throw new Error('Accommodation check-out date is required.');
+      if (row.accommodationCheckOutDate < row.accommodationCheckInDate) throw new Error('Accommodation check-out date cannot be earlier than check-in date.');
+    }
   } else {
     row.accommodationCheckInDate = '';
     row.accommodationCheckOutDate = '';
@@ -476,13 +484,12 @@ function handleListResponses_(payload) {
 
   var headers = values[0];
   var rows = [];
-  var todayKey = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var todayKey = formatDateOnly_(new Date());
   var stats = emptyStats_();
 
   for (var i = 1; i < values.length; i++) {
     var obj = rowToObject_(headers, values[i]);
-    var ts = obj.Timestamp ? new Date(obj.Timestamp) : null;
-    var tsLabel = ts && !isNaN(ts) ? Utilities.formatDate(ts, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : '';
+    var tsLabel = formatDateTime_(obj.Timestamp);
     var participantType = String(obj.Participant_Type || '');
     var accommodation = String(obj.Will_Avail_Accommodation || '');
 
@@ -586,11 +593,11 @@ function handleCheckInParticipant_(payload) {
 
     var timestamp = new Date();
     sheet.getRange(found.rowNumber, map.Check_In_Status + 1).setValue(CHECKIN_STATUS_CHECKED_IN);
-    sheet.getRange(found.rowNumber, map.Check_In_At + 1).setValue(timestamp);
+    sheet.getRange(found.rowNumber, map.Check_In_At + 1).setValue(formatDateTime_(timestamp));
     sheet.getRange(found.rowNumber, map.Check_In_By + 1).setValue('admin');
     sheet.getRange(found.rowNumber, map.Check_In_Method + 1).setValue(method);
     sheet.getRange(found.rowNumber, map.Check_In_Note + 1).setValue(note);
-    sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(timestamp);
+    sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(timestamp));
     sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue('admin_checkin');
 
     var refreshed = findRegistrationRow_(sheet, registrationCode);
@@ -664,7 +671,7 @@ function handleUpdateReviewNote_(payload) {
   var map = columnMap_(headers);
   var oldNote = String(found.values[map.Review_Note] || '');
   sheet.getRange(found.rowNumber, map.Review_Note + 1).setValue(note);
-  sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(new Date());
+  sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(new Date()));
   sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue('admin');
 
   auditLog_('update_review_note', 'ok', code, String(found.object.Email_Address || ''), 'old="' + oldNote + '" -> new="' + note + '"', '', '');
@@ -736,7 +743,7 @@ function rowObjectToRegistration_(obj) {
 function registrationToRow_(headers, data) {
   var row = data.row;
   var valuesByHeader = {
-    Timestamp: data.timestamp,
+    Timestamp: formatDateTime_(data.timestamp),
     Registration_Code: data.registrationCode,
     Status: data.status,
     Email_Address: row.email,
@@ -893,7 +900,7 @@ function appendCheckinLog_(config, participant, meta) {
   var sheet = getCheckinSheet_(config);
   var headers = getCheckinHeaders_();
   var valuesByHeader = {
-    Timestamp: meta.timestamp,
+    Timestamp: formatDateTime_(meta.timestamp),
     Checkin_ID: Utilities.getUuid(),
     Registration_Code: participant.registrationCode,
     Email_Address: participant.email,
@@ -1060,19 +1067,21 @@ function extractRegistrationCodeFromQr_(value) {
 
 function formatDateTime_(value) {
   if (!value) return '';
+  var raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
   var date = value instanceof Date ? value : new Date(value);
-  if (!date || isNaN(date.getTime())) return String(value || '');
-  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  if (!date || isNaN(date.getTime())) return raw;
+  return Utilities.formatDate(date, APP_TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
 }
 
 function formatDateOnly_(value) {
   if (!value) return '';
-  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, APP_TIME_ZONE, 'yyyy-MM-dd');
   var raw = String(value || '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   var date = new Date(raw);
   if (!date || isNaN(date.getTime())) return raw;
-  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(date, APP_TIME_ZONE, 'yyyy-MM-dd');
 }
 
 function cleanDate_(value) {
@@ -1093,7 +1102,7 @@ function updateEmailStatus_(registrationCode, sentValue, errorValue) {
   var map = columnMap_(found.headers);
   sheet.getRange(found.rowNumber, map.Email_Sent + 1).setValue(sentValue);
   sheet.getRange(found.rowNumber, map.Email_Error + 1).setValue(errorValue || '');
-  sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(new Date());
+  sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(new Date()));
   sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue('system');
 }
 
@@ -1150,7 +1159,7 @@ function sendConfirmationEmail_(data) {
   var row = data.row;
   var eventName = data.eventName || 'Event Registration Portal';
   var senderName = data.organizerName || 'Event Registration Portal';
-  var timestampLabel = Utilities.formatDate(new Date(data.timestamp), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  var timestampLabel = formatDateTime_(data.timestamp);
   var food = (row.foodRestrictions || []).join('; ') + (row.foodRestrictionOther ? ' - ' + row.foodRestrictionOther : '');
   var participantType = row.participantType + (row.participantTypeOther ? ' - ' + row.participantTypeOther : '');
   var regionDisplay = row.region ? formatRegionLabel_(row.region) : 'N/A';
@@ -1178,8 +1187,8 @@ function sendConfirmationEmail_(data) {
     rowHtml_('Accommodation', escapeHtml_(row.accommodation)) +
     rowHtml_('Accommodation Check-in Date', escapeHtml_(row.accommodationCheckInDate || 'N/A')) +
     rowHtml_('Accommodation Check-out Date', escapeHtml_(row.accommodationCheckOutDate || 'N/A')) +
-    rowHtml_('Transportation from CHED to Tagaytay Venue', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
-    rowHtml_('Transportation from Tagaytay Venue to CHED', escapeHtml_(row.transportationFromTagaytayToChed ? 'YES' : 'NO')) +
+    rowHtml_('CHED to Tagaytay Venue 02 June 2026, 2:00PM', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
+    rowHtml_('Tagaytay Venue to CHED 05 June 2026, 10:00AM', escapeHtml_(row.transportationFromTagaytayToChed ? 'YES' : 'NO')) +
     rowHtml_('Participant Type', escapeHtml_(participantType)) +
     rowHtml_('Current Designation', escapeHtml_(row.currentDesignation || 'N/A')) +
     rowHtml_('Topic 1', escapeHtml_(row.breakoutSession1)) +
@@ -1208,8 +1217,8 @@ function sendConfirmationEmail_(data) {
     'Accommodation: ' + row.accommodation,
     'Accommodation Check-in Date: ' + (row.accommodationCheckInDate || 'N/A'),
     'Accommodation Check-out Date: ' + (row.accommodationCheckOutDate || 'N/A'),
-    'Transportation from CHED to Tagaytay Venue: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
-    'Transportation from Tagaytay Venue to CHED: ' + (row.transportationFromTagaytayToChed ? 'YES' : 'NO'),
+    'CHED to Tagaytay Venue 02 June 2026, 2:00PM: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
+    'Tagaytay Venue to CHED 05 June 2026, 10:00AM: ' + (row.transportationFromTagaytayToChed ? 'YES' : 'NO'),
     'Participant Type: ' + participantType,
     'Current Designation: ' + (row.currentDesignation || 'N/A'),
     'Topic 1: ' + row.breakoutSession1,
@@ -1297,7 +1306,7 @@ function getAuditSheet_() {
 function auditLog_(action, status, registrationCode, email, detail, userAgent, clientOrigin) {
   try {
     getAuditSheet_().appendRow([
-      new Date(),
+      formatDateTime_(new Date()),
       Utilities.getUuid(),
       String(action || ''),
       String(status || ''),
@@ -1363,6 +1372,7 @@ function verifyTurnstile_(token) {
 function setupProject_() {
   var config = getConfig_();
   if (!config.spreadsheetId || config.spreadsheetId === 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE') throw new Error('Set SPREADSHEET_ID in Script Properties first.');
+  try { SpreadsheetApp.openById(config.spreadsheetId).setSpreadsheetTimeZone(APP_TIME_ZONE); } catch (err) {}
   getResponseSheet_(config);
   getCheckinSheet_(config);
   getOfficeSheet_(config.chedroSheetName, CHEDRO_OFFICE_OPTIONS);

@@ -16,7 +16,7 @@
    - `EVENT_NAME`
    - `EVENT_ORGANIZER_NAME`
    - `QR_PAYLOAD_PREFIX` optional. Use `https://your-site.netlify.app/checkin?code={{code}}` only if you later build auto-fill from URL; otherwise raw code QR is fine.
-4. Run `setupProject_()` once. It creates/normalizes `Registrations`, `Checkins`, `Audit`, `CHEDRO`, and `CHEDCO`.
+4. Run `setupProject_()` once. It creates/normalizes `Registrations`, `Checkins`, `Audit`, `CHEDRO`, and `CHEDCO`, and sets the spreadsheet timezone to Singapore Standard Time (`Asia/Singapore`).
 5. Deploy as Web App.
 6. Copy the Web App URL to Netlify as `VITE_GAS_WEB_APP_URL`.
 
@@ -32,7 +32,7 @@ Create a tab named `HEI_List` with these headers:
 HEI Name | UII | Region | HEI Type | Province | City/Municipality | Status
 ```
 
-Only rows with blank `Status` or `Status = Existing` are loaded. The public form uses this tab for the Region dropdown and filters HEIs based on the selected Region for Student and SAS Practitioner/Guidance/Faculty participants. Other participant types use the CHEDRO/CHEDCO office sheets or a free-text affiliation field.
+Only rows with blank `Status` or `Status = Existing` are loaded. The public form uses this tab for the Region dropdown and filters HEIs based on the selected Region for Student and SAS Practitioner/Guidance/Faculty participants. Other participant types use the CHEDRO/CHEDCO office sheets or a free-text affiliation field. Resource Person/Facilitator/Moderator participants also require `Current_Designation`.
 
 ### Onsite check-in
 
@@ -55,3 +55,14 @@ Successful check-ins are also appended to the `Checkins` sheet. Duplicate scans 
 ### Required scopes
 
 The script uses SpreadsheetApp, MailApp, UrlFetchApp when Turnstile is enabled, CacheService, and LockService. Apps Script will request the required scopes during authorization.
+
+### Accommodation defaults
+
+For Student and SAS Practitioner/Guidance/Faculty participants who answer `Yes` to accommodation, the backend automatically saves:
+
+```text
+Accommodation_Check_In_Date = 2026-06-02
+Accommodation_Check_Out_Date = 2026-06-05
+```
+
+Other participant types that answer `Yes` must provide their own check-in and check-out dates.

@@ -188,7 +188,7 @@ function exportCsvClient() {
   const isCheckins = activeView.value === 'checkins'
   const header = isCheckins
     ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
-    : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'Transportation from CHED to Tagaytay Venue', 'Transportation from Tagaytay Venue to CHED', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
+    : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'CHED to Tagaytay Venue 02 June 2026, 2:00PM', 'Tagaytay Venue to CHED 05 June 2026, 10:00AM', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
 
   const rows = isCheckins
     ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
@@ -341,8 +341,8 @@ onMounted(() => {
                   <p><span class="font-semibold">Food:</span> {{ row.foodRestrictions || '—' }}</p>
                   <p class="mt-2"><span class="font-semibold">Accommodation:</span> {{ row.accommodation || '—' }}</p>
                   <p v-if="row.accommodation === 'Yes'" class="mt-1 text-xs text-slate-500">{{ row.accommodationCheckInDate || '—' }} to {{ row.accommodationCheckOutDate || '—' }}</p>
-                  <p v-if="row.transportationFromChedToTagaytay === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">CHED → Venue:</span> YES</p>
-                  <p v-if="row.transportationFromTagaytayToChed === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">Venue → CHED:</span> YES</p>
+                  <p v-if="row.transportationFromChedToTagaytay === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">CHED to Tagaytay Venue 02 June 2026, 2:00PM:</span> YES</p>
+                  <p v-if="row.transportationFromTagaytayToChed === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">Tagaytay Venue to CHED 05 June 2026, 10:00AM:</span> YES</p>
                   <p class="mt-2"><span class="font-semibold">Emergency:</span> {{ row.emergencyContact || '—' }}</p>
                 </td>
                 <td class="px-3 py-4 text-slate-700 break-words">
