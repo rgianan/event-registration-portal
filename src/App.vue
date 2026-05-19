@@ -10,9 +10,9 @@ const route = useRoute()
       <div class="mb-6 flex flex-col gap-4 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:mb-8 md:flex-row md:items-end md:justify-between">
         <div class="min-w-0">
           <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 sm:text-sm">Commission on Higher Education</p>
-          <h1 class="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">Event Registration Portal</h1>
+          <h1 class="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">Ginhawa Student Wellbeing Summit</h1>
           <p class="mt-3 max-w-3xl text-sm text-slate-600">
-            Register participants, enforce one registration per email address, and issue a QR-coded confirmation for event check-in and administrative validation.
+            Inspiring Wellness, Leadership, and Purpose in Higher Education | June 3-4, 2026.
           </p>
         </div>
         <div class="inline-flex w-full overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1 md:w-auto">

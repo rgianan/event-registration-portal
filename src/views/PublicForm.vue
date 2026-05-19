@@ -334,26 +334,8 @@ watch(turnstileHost, () => {
 <template>
   <section class="mx-auto w-full max-w-5xl rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8 min-[1920px]:max-w-[1600px]">
     <div class="mb-6 rounded-2xl bg-slate-900 px-4 py-5 text-white sm:px-6">
-      <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-300">Event Registration</p>
+      <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-300">GINHAWA STUDENT WELLBEING SUMMIT</p>
       <h2 class="mt-2 text-2xl font-bold">Participant Registration Form</h2>
-      <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-        Register once using your active email address. After successful submission, the system generates a unique 16-character registration code and sends a QR confirmation to your email.
-      </p>
-    </div>
-
-    <div class="mb-6 grid gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 md:grid-cols-3">
-      <div>
-        <p class="font-semibold">One email, one registration</p>
-        <p class="mt-1">Duplicate email addresses are rejected by the backend.</p>
-      </div>
-      <div>
-        <p class="font-semibold">QR confirmation</p>
-        <p class="mt-1">The QR code appears after submission and is also sent by email.</p>
-      </div>
-      <div>
-        <p class="font-semibold">HEI master list</p>
-        <p class="mt-1">Region and HEI dropdowns are loaded from the configured HEI_List sheet.</p>
-      </div>
     </div>
 
     <form class="space-y-6" @submit.prevent="submitForm">
