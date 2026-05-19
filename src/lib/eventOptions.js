@@ -3,11 +3,11 @@ export const SEX_OPTIONS = ['Male', 'Female']
 export const ACCOMMODATION_OPTIONS = ['Yes', 'No']
 
 export const PARTICIPANT_TYPES = [
-  'SAS Practitioner/Guidance/Faculty',
   'Student',
+  'SAS Practitioner/Guidance/Faculty',
+  'Resource Person/Facilitator/Moderator',
   'CHED Regional Office',
   'CHED Central Office',
-  'Resource Person/Facilitator/Moderator',
   'Other',
 ]
 

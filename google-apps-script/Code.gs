@@ -30,7 +30,7 @@ var EMAIL_PENDING = 'PENDING';
 
 var SEX_OPTIONS = ['Male', 'Female'];
 var ACCOMMODATION_OPTIONS = ['Yes', 'No'];
-var PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student', 'CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator', 'Other'];
+var PARTICIPANT_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office', 'Other'];
 var HEI_PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student'];
 var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator'];
 var CHEDRO_OFFICE_OPTIONS = ['CHEDRO I', 'CHEDRO II', 'CHEDRO III', 'CHEDRO IV', 'CHEDRO V', 'CHEDRO VI', 'CHEDRO VII', 'CHEDRO VIII', 'CHEDRO IX', 'CHEDRO X', 'CHEDRO XI', 'CHEDRO XII', 'CHEDRO NCR', 'CHEDRO NIR', 'CHEDRO CAR', 'CHEDRO CARAGA', 'CHEDRO MIMAROPA'];
@@ -197,6 +197,7 @@ function sanitizeRegistration_(payload) {
     chedcoOffice: cleanText_(payload.chedcoOffice, 160),
     resourceAffiliation: cleanText_(payload.resourceAffiliation, 220),
     transportationFromChedToTagaytay: payload.transportationFromChedToTagaytay === true || String(payload.transportationFromChedToTagaytay || '').toUpperCase() === 'YES',
+    transportationFromTagaytayToChed: payload.transportationFromTagaytayToChed === true || String(payload.transportationFromTagaytayToChed || '').toUpperCase() === 'YES',
     contactNumber: cleanText_(payload.contactNumber, 50),
     foodRestrictions: sanitizeList_(payload.foodRestrictions, FOOD_RESTRICTION_OPTIONS, 6),
     foodRestrictionOther: cleanText_(payload.foodRestrictionOther, 120),
@@ -231,8 +232,8 @@ function sanitizeRegistration_(payload) {
   if (!row.foodRestrictions.length) missing.push('Food Restrictions');
   if (!row.emergencyContact) missing.push('Emergency Contact');
   if (!row.accommodation) missing.push('Accommodation');
-  if (!row.breakoutSession1) missing.push('Breakout Session 1');
-  if (!row.breakoutSession4) missing.push('Breakout Session 4');
+  if (!row.breakoutSession1) missing.push('Topic 1');
+  if (!row.breakoutSession4) missing.push('Topic 4');
   if (!row.privacyConsent) missing.push('Privacy Consent');
 
   if (missing.length) throw new Error('Please complete: ' + missing.join(', '));
@@ -248,7 +249,10 @@ function sanitizeRegistration_(payload) {
 
   canonicalizeAffiliationSelection_(row);
 
-  if (TRANSPORTATION_ELIGIBLE_TYPES.indexOf(row.participantType) === -1) row.transportationFromChedToTagaytay = false;
+  if (TRANSPORTATION_ELIGIBLE_TYPES.indexOf(row.participantType) === -1) {
+    row.transportationFromChedToTagaytay = false;
+    row.transportationFromTagaytayToChed = false;
+  }
 
   if (row.accommodation === 'Yes') {
     if (!row.accommodationCheckInDate) throw new Error('Accommodation check-in date is required.');
@@ -262,8 +266,8 @@ function sanitizeRegistration_(payload) {
   if (row.foodRestrictions.indexOf('N/A') !== -1 && row.foodRestrictions.length > 1) throw new Error('Choose either N/A or specific food restrictions, not both.');
   if (row.foodRestrictions.indexOf('Other') !== -1 && !row.foodRestrictionOther) throw new Error('Specify the other food restriction.');
   if (row.foodRestrictions.indexOf('Other') === -1) row.foodRestrictionOther = '';
-  if (BREAKOUT_SESSION_1_OPTIONS.indexOf(row.breakoutSession1) === -1) throw new Error('Invalid Breakout Session 1 selection.');
-  if (BREAKOUT_SESSION_4_OPTIONS.indexOf(row.breakoutSession4) === -1) throw new Error('Invalid Breakout Session 4 selection.');
+  if (BREAKOUT_SESSION_1_OPTIONS.indexOf(row.breakoutSession1) === -1) throw new Error('Invalid Topic 1 selection.');
+  if (BREAKOUT_SESSION_4_OPTIONS.indexOf(row.breakoutSession4) === -1) throw new Error('Invalid Topic 4 selection.');
 
   return row;
 }
@@ -508,6 +512,7 @@ function handleListResponses_(payload) {
       accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
       accommodationCheckOutDate: formatDateOnly_(obj.Accommodation_Check_Out_Date),
       transportationFromChedToTagaytay: String(obj.Transportation_From_CHED_To_Tagaytay_Venue || ''),
+      transportationFromTagaytayToChed: String(obj.Transportation_From_Tagaytay_Venue_To_CHED || ''),
       participantType: participantType,
       participantTypeOther: String(obj.Participant_Type_Other || ''),
       currentDesignation: String(obj.Current_Designation || ''),
@@ -719,6 +724,7 @@ function rowObjectToRegistration_(obj) {
     accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
     accommodationCheckOutDate: formatDateOnly_(obj.Accommodation_Check_Out_Date),
     transportationFromChedToTagaytay: String(obj.Transportation_From_CHED_To_Tagaytay_Venue || '').toUpperCase() === 'YES',
+    transportationFromTagaytayToChed: String(obj.Transportation_From_Tagaytay_Venue_To_CHED || '').toUpperCase() === 'YES',
     participantType: String(obj.Participant_Type || ''),
     participantTypeOther: String(obj.Participant_Type_Other || ''),
     currentDesignation: String(obj.Current_Designation || ''),
@@ -750,6 +756,7 @@ function registrationToRow_(headers, data) {
     Accommodation_Check_In_Date: row.accommodationCheckInDate,
     Accommodation_Check_Out_Date: row.accommodationCheckOutDate,
     Transportation_From_CHED_To_Tagaytay_Venue: row.transportationFromChedToTagaytay ? 'YES' : 'NO',
+    Transportation_From_Tagaytay_Venue_To_CHED: row.transportationFromTagaytayToChed ? 'YES' : 'NO',
     CHEDRO_Office: row.chedroOffice,
     CHEDCO_Office: row.chedcoOffice,
     Resource_Affiliation: row.resourceAffiliation,
@@ -953,6 +960,7 @@ function getResponseHeaders_() {
     'Accommodation_Check_In_Date',
     'Accommodation_Check_Out_Date',
     'Transportation_From_CHED_To_Tagaytay_Venue',
+    'Transportation_From_Tagaytay_Venue_To_CHED',
     'CHEDRO_Office',
     'CHEDCO_Office',
     'Resource_Affiliation'
@@ -1171,10 +1179,11 @@ function sendConfirmationEmail_(data) {
     rowHtml_('Accommodation Check-in Date', escapeHtml_(row.accommodationCheckInDate || 'N/A')) +
     rowHtml_('Accommodation Check-out Date', escapeHtml_(row.accommodationCheckOutDate || 'N/A')) +
     rowHtml_('Transportation from CHED to Tagaytay Venue', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
+    rowHtml_('Transportation from Tagaytay Venue to CHED', escapeHtml_(row.transportationFromTagaytayToChed ? 'YES' : 'NO')) +
     rowHtml_('Participant Type', escapeHtml_(participantType)) +
     rowHtml_('Current Designation', escapeHtml_(row.currentDesignation || 'N/A')) +
-    rowHtml_('Breakout Session 1', escapeHtml_(row.breakoutSession1)) +
-    rowHtml_('Breakout Session 4', escapeHtml_(row.breakoutSession4)) +
+    rowHtml_('Topic 1', escapeHtml_(row.breakoutSession1)) +
+    rowHtml_('Topic 4', escapeHtml_(row.breakoutSession4)) +
     '</table>' +
     '<p style="margin-top:16px;">Please keep this email for your reference.</p>' +
     '<p>Thank you.</p>' +
@@ -1200,10 +1209,11 @@ function sendConfirmationEmail_(data) {
     'Accommodation Check-in Date: ' + (row.accommodationCheckInDate || 'N/A'),
     'Accommodation Check-out Date: ' + (row.accommodationCheckOutDate || 'N/A'),
     'Transportation from CHED to Tagaytay Venue: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
+    'Transportation from Tagaytay Venue to CHED: ' + (row.transportationFromTagaytayToChed ? 'YES' : 'NO'),
     'Participant Type: ' + participantType,
     'Current Designation: ' + (row.currentDesignation || 'N/A'),
-    'Breakout Session 1: ' + row.breakoutSession1,
-    'Breakout Session 4: ' + row.breakoutSession4,
+    'Topic 1: ' + row.breakoutSession1,
+    'Topic 4: ' + row.breakoutSession4,
     '',
     'Please keep this email for your reference.',
     '',

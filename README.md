@@ -5,7 +5,7 @@ This project has been restructured from a document-intake checklist into an even
 ## What it does
 
 ### Public registration form
-- Collects participant profile first, then personal information, conditional affiliation details, food restrictions, emergency contact, accommodation details, transportation request when applicable, and breakout session choices.
+- Collects participant profile first, then personal information, conditional affiliation details, food restrictions, emergency contact, accommodation details, two-way transportation requests when applicable, and topic choices.
 - Enforces required fields on the frontend and backend.
 - Accepts only one registration per email address.
 - Generates a unique 16-character alphanumeric registration code.
@@ -36,7 +36,7 @@ This project has been restructured from a document-intake checklist into an even
 - `src/views/PublicForm.vue` — event registration form with conditional affiliation fields: Region → HEI for Student/SAS participants, CHEDRO/CHEDCO office dropdowns, and resource-person affiliation textbox.
 - `src/views/AdminDashboard.vue` — admin registration dashboard.
 - `src/views/AdminCheckIn.vue` — protected onsite QR scanner and manual check-in module.
-- `src/lib/eventOptions.js` — frontend options for food restrictions, participant types, CHEDRO/CHEDCO office fallbacks, and breakout sessions.
+- `src/lib/eventOptions.js` — frontend options for food restrictions, participant types, CHEDRO/CHEDCO office fallbacks, and topic options.
 - `google-apps-script/Code.gs` — backend API, validation, unique email enforcement, QR generation, email confirmation, Google Sheets logging, and audit trail.
 
 ## Environment variables for Netlify

@@ -45,6 +45,7 @@ const form = reactive({
   chedcoOffice: '',
   resourceAffiliation: '',
   transportationFromChedToTagaytay: false,
+  transportationFromTagaytayToChed: false,
   email: '',
   firstName: '',
   middleInitial: '',
@@ -203,8 +204,8 @@ function validateForm() {
   if (accommodationYes.value && !form.accommodationCheckInDate) missing.push('Accommodation check-in date')
   if (accommodationYes.value && !form.accommodationCheckOutDate) missing.push('Accommodation check-out date')
   if (selectedOtherFood.value && !form.foodRestrictionOther.trim()) missing.push('Food restrictions - Other')
-  if (!form.breakoutSession1) missing.push('Breakout Session 1')
-  if (!form.breakoutSession4) missing.push('Breakout Session 4')
+  if (!form.breakoutSession1) missing.push('Topic 1')
+  if (!form.breakoutSession4) missing.push('Topic 4')
   if (!form.privacyConsent) missing.push('Privacy consent')
 
   if (missing.length) {
@@ -267,6 +268,7 @@ function resetForm() {
     chedcoOffice: '',
     resourceAffiliation: '',
     transportationFromChedToTagaytay: false,
+    transportationFromTagaytayToChed: false,
     email: '',
     firstName: '',
     middleInitial: '',
@@ -306,6 +308,7 @@ async function submitForm() {
       chedcoOffice: form.chedcoOffice.trim(),
       resourceAffiliation: form.resourceAffiliation.trim(),
       transportationFromChedToTagaytay: !!form.transportationFromChedToTagaytay,
+      transportationFromTagaytayToChed: !!form.transportationFromTagaytayToChed,
       email: form.email.trim(),
       firstName: form.firstName.trim(),
       middleInitial: form.middleInitial.trim(),
@@ -394,7 +397,10 @@ watch(() => form.participantType, () => {
   if (!chedroSelected.value) form.chedroOffice = ''
   if (!chedcoSelected.value) form.chedcoOffice = ''
   if (!resourceSelected.value && !otherParticipantSelected.value) form.resourceAffiliation = ''
-  if (!transportationEligible.value) form.transportationFromChedToTagaytay = false
+  if (!transportationEligible.value) {
+    form.transportationFromChedToTagaytay = false
+    form.transportationFromTagaytayToChed = false
+  }
 })
 
 watch(() => form.region, () => {
@@ -503,11 +509,6 @@ watch(turnstileHost, () => {
           <label class="mb-2 block text-sm font-medium text-slate-700">{{ resourceSelected ? 'Resource Person/Facilitator/Moderator affiliation' : 'Affiliation / Office / Organization' }}</label>
           <input v-model="form.resourceAffiliation" type="text" :placeholder="resourceSelected ? 'State office, agency, organization, or affiliation' : 'Optional affiliation, office, or organization'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
         </div>
-
-        <label v-if="transportationEligible" class="mt-5 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-          <input v-model="form.transportationFromChedToTagaytay" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
-          <span>Transportation from CHED to Tagaytay Venue</span>
-        </label>
       </div>
 
       <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
@@ -593,24 +594,37 @@ watch(turnstileHost, () => {
                 <input v-model="form.accommodationCheckOutDate" type="date" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
               </div>
             </div>
+            <div v-if="transportationEligible" class="rounded-2xl border border-slate-200 bg-white p-4">
+              <p class="mb-3 text-sm font-semibold text-slate-900">Transportation request</p>
+              <div class="grid gap-3">
+                <label class="flex items-start gap-3 text-sm text-slate-700">
+                  <input v-model="form.transportationFromChedToTagaytay" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
+                  <span>Transportation from CHED to Tagaytay Venue</span>
+                </label>
+                <label class="flex items-start gap-3 text-sm text-slate-700">
+                  <input v-model="form.transportationFromTagaytayToChed" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
+                  <span>Transportation from Tagaytay Venue to CHED</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
-        <h3 class="text-lg font-semibold text-slate-900">Breakout sessions</h3>
+        <h3 class="text-lg font-semibold text-slate-900">Which among the Topics are you interested to join?</h3>
         <div class="mt-4 grid gap-5 lg:grid-cols-2">
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">Breakout Session 1: Focused Discussion Group</label>
+            <label class="mb-2 block text-sm font-medium text-slate-700">Topic 1: Focused Discussion Group</label>
             <select v-model="form.breakoutSession1" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
-              <option value="" disabled>Select breakout session</option>
+              <option value="" disabled>Select topic</option>
               <option v-for="option in BREAKOUT_SESSION_1_OPTIONS" :key="option" :value="option">{{ option }}</option>
             </select>
           </div>
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">Breakout Session 4: Solution Lab</label>
+            <label class="mb-2 block text-sm font-medium text-slate-700">Topic 4: Solution Lab</label>
             <select v-model="form.breakoutSession4" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
-              <option value="" disabled>Select breakout session</option>
+              <option value="" disabled>Select topic</option>
               <option v-for="option in BREAKOUT_SESSION_4_OPTIONS" :key="option" :value="option">{{ option }}</option>
             </select>
           </div>
