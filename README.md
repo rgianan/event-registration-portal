@@ -73,10 +73,10 @@ TURNSTILE_SECRET_KEY=your_cloudflare_turnstile_secret_key
 EVENT_NAME=Event Registration Portal
 EVENT_ORGANIZER_NAME=Event Registration Portal
 QR_PAYLOAD_PREFIX=optional_prefix_or_url_with_{{code}}
-RICH_HTML_EMAIL_DOMAINS=gmail.com,googlemail.com,ched.gov.ph
+SIMPLE_TEXT_EMAIL_DOMAINS=yahoo.com,yahoo.com.ph,ymail.com,rocketmail.com,outlook.com,outlook.com.ph,hotmail.com,hotmail.com.ph,live.com,msn.com
 ```
 
-`RICH_HTML_EMAIL_DOMAINS` controls which recipient domains receive the richer HTML confirmation email with QR image. All other recipient domains receive the simpler plain-text email for better deliverability.
+`SIMPLE_TEXT_EMAIL_DOMAINS` controls which recipient domains receive the simpler plain-text confirmation email. All other recipient domains receive the richer HTML confirmation email with QR image. This avoids incorrectly downgrading Google Workspace domains such as ched.gov.ph or deped.gov.ph.
 
 `SUBMIT_SHARED_TOKEN` is only a low-friction filter because the frontend value is public. Turnstile is now enabled by default on the backend through `TURNSTILE_ENABLED=TRUE`. For local testing, you may use Cloudflare's documented test secret key `1x0000000000000000000000000000000AA`; for production, replace both the frontend site key and Apps Script secret key with real Cloudflare Turnstile keys.
 

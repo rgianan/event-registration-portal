@@ -1177,22 +1177,22 @@ function sendConfirmationEmailSafe_(data) {
 }
 
 function getConfirmationEmailFormat_(email) {
-  return isRichHtmlEmailDomain_(email) ? 'RICH_HTML_GOOGLE_MAIL' : 'SIMPLE_TEXT_NON_GMAIL';
+  return isSimpleTextEmailDomain_(email) ? 'SIMPLE_TEXT_YAHOO_OUTLOOK_HOTMAIL' : 'RICH_HTML_DEFAULT';
 }
 
-function isRichHtmlEmailDomain_(email) {
+function isSimpleTextEmailDomain_(email) {
   var normalized = String(email || '').trim().toLowerCase();
   var at = normalized.lastIndexOf('@');
-  if (at === -1) return false;
+  if (at === -1) return true;
 
   var domain = normalized.slice(at + 1);
-  var allowedDomains = getRichHtmlEmailDomains_();
-  return allowedDomains.indexOf(domain) !== -1;
+  var simpleDomains = getSimpleTextEmailDomains_();
+  return simpleDomains.indexOf(domain) !== -1;
 }
 
-function getRichHtmlEmailDomains_() {
+function getSimpleTextEmailDomains_() {
   var props = PropertiesService.getScriptProperties();
-  var raw = props.getProperty('RICH_HTML_EMAIL_DOMAINS') || 'gmail.com,googlemail.com,ched.gov.ph';
+  var raw = props.getProperty('SIMPLE_TEXT_EMAIL_DOMAINS') || 'yahoo.com,yahoo.com.ph,ymail.com,rocketmail.com,outlook.com,outlook.com.ph,hotmail.com,hotmail.com.ph,live.com,msn.com';
   var parts = String(raw || '').split(',');
   var domains = [];
 
@@ -1218,7 +1218,7 @@ function sendConfirmationEmail_(data, emailFormat) {
   if (row.breakoutSession1) topicLines.push('Topic 1: ' + row.breakoutSession1);
   if (row.breakoutSession4) topicLines.push('Topic 4: ' + row.breakoutSession4);
 
-  if (emailFormat === 'SIMPLE_TEXT_NON_GMAIL') {
+  if (emailFormat === 'SIMPLE_TEXT_YAHOO_OUTLOOK_HOTMAIL') {
     var simpleBody = [
       'Your registration has been recorded.',
       '',
@@ -1409,7 +1409,7 @@ function getConfig_() {
     eventName: props.getProperty('EVENT_NAME') || 'Event Registration Portal',
     eventOrganizerName: props.getProperty('EVENT_ORGANIZER_NAME') || 'Event Registration Portal',
     qrPayloadPrefix: props.getProperty('QR_PAYLOAD_PREFIX') || '',
-    richHtmlEmailDomains: props.getProperty('RICH_HTML_EMAIL_DOMAINS') || 'gmail.com,googlemail.com,ched.gov.ph'
+    simpleTextEmailDomains: props.getProperty('SIMPLE_TEXT_EMAIL_DOMAINS') || 'yahoo.com,yahoo.com.ph,ymail.com,rocketmail.com,outlook.com,outlook.com.ph,hotmail.com,hotmail.com.ph,live.com,msn.com'
   };
 }
 
