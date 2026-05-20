@@ -17,6 +17,7 @@
    - `EVENT_NAME`
    - `EVENT_ORGANIZER_NAME`
    - `QR_PAYLOAD_PREFIX` optional. Use `https://your-site.netlify.app/checkin?code={{code}}` only if you later build auto-fill from URL; otherwise raw code QR is fine.
+   - `RICH_HTML_EMAIL_DOMAINS` optional. Default: `gmail.com,googlemail.com,ched.gov.ph`. Domains in this list receive the rich HTML confirmation email; all others receive the simple plain-text email.
 4. Run `setupProject_()` once. It creates/normalizes `Registrations`, `Checkins`, `Audit`, `CHEDRO`, and `CHEDCO`, and sets the spreadsheet timezone to Singapore Standard Time (`Asia/Singapore`).
 5. Deploy as Web App.
 6. Copy the Web App URL to Netlify as `VITE_GAS_WEB_APP_URL`.

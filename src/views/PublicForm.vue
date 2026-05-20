@@ -471,7 +471,7 @@ watch(turnstileHost, () => {
           </div>
           <div v-if="designationRequired">
             <label class="mb-2 block text-sm font-medium text-slate-700">{{ sasParticipantSelected ? 'State your current designation in your HEI' : 'State your current designation' }}</label>
-            <input v-model="form.currentDesignation" type="text" :placeholder="sasParticipantSelected ? 'e.g., Guidance Counselor, Dean, Faculty Member' : 'e.g., Mental Health Counselor, Therapist, Education Program Specialist, Director'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+            <input v-model="form.currentDesignation" type="text" :placeholder="sasParticipantSelected ? 'e.g., Guidance Counselor, Dean, Faculty Member' : 'e.g., Resource Person, Facilitator, Moderator, Director'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
           </div>
         </div>
 

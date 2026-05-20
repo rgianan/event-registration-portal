@@ -144,6 +144,7 @@ function handleSubmit_(payload) {
       row: row,
       emailSent: EMAIL_PENDING,
       emailError: '',
+      emailFormat: 'PENDING',
       qrPayload: qrPayload,
       qrImageUrl: qrImageUrl,
       reviewNote: ''
@@ -169,7 +170,7 @@ function handleSubmit_(payload) {
   });
 
   if (appended) {
-    updateEmailStatus_(registrationCode, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
+    updateEmailStatus_(registrationCode, emailResult.sent ? 'YES' : 'NO', emailResult.error || '', emailResult.format || '');
   }
 
   return jsonOutput_({
@@ -711,7 +712,7 @@ function handleResendConfirmation_(payload) {
     qrImageUrl: String(obj.QR_Image_URL || makeQrImageUrl_(String(obj.QR_Payload || code))),
     row: row
   });
-  updateEmailStatus_(code, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
+  updateEmailStatus_(code, emailResult.sent ? 'YES' : 'NO', emailResult.error || '', emailResult.format || '');
   auditLog_('resend_confirmation', emailResult.sent ? 'ok' : 'failure', code, row.email, emailResult.error || 'Confirmation resent by admin.', '', '');
 
   return jsonOutput_({
@@ -801,7 +802,8 @@ function registrationToRow_(headers, data) {
     Created_By: 'public_form',
     Updated_At: '',
     Updated_By: '',
-    Review_Note: data.reviewNote || ''
+    Review_Note: data.reviewNote || '',
+    Email_Format: data.emailFormat || 'PENDING'
   };
 
   return headers.map(function (header) {
@@ -984,7 +986,8 @@ function getResponseHeaders_() {
     'Transportation_From_Tagaytay_Venue_To_CHED',
     'CHEDRO_Office',
     'CHEDCO_Office',
-    'Resource_Affiliation'
+    'Resource_Affiliation',
+    'Email_Format'
   ];
 }
 
@@ -1109,13 +1112,16 @@ function cleanDate_(value) {
   return raw;
 }
 
-function updateEmailStatus_(registrationCode, sentValue, errorValue) {
+function updateEmailStatus_(registrationCode, sentValue, errorValue, emailFormat) {
   var sheet = getResponseSheet_(getConfig_());
   var found = findRegistrationRow_(sheet, registrationCode);
   if (!found) return;
   var map = columnMap_(found.headers);
   sheet.getRange(found.rowNumber, map.Email_Sent + 1).setValue(sentValue);
   sheet.getRange(found.rowNumber, map.Email_Error + 1).setValue(errorValue || '');
+  if (typeof map.Email_Format !== 'undefined') {
+    sheet.getRange(found.rowNumber, map.Email_Format + 1).setValue(emailFormat || '');
+  }
   sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(new Date()));
   sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue('system');
 }
@@ -1161,15 +1167,44 @@ function makeQrImageUrl_(payload) {
 }
 
 function sendConfirmationEmailSafe_(data) {
+  var format = getConfirmationEmailFormat_(data && data.row ? data.row.email : '');
   try {
-    sendConfirmationEmail_(data);
-    return { sent: true, error: '' };
+    sendConfirmationEmail_(data, format);
+    return { sent: true, error: '', format: format };
   } catch (err) {
-    return { sent: false, error: errorMessage_(err) };
+    return { sent: false, error: errorMessage_(err), format: format };
   }
 }
 
-function sendConfirmationEmail_(data) {
+function getConfirmationEmailFormat_(email) {
+  return isRichHtmlEmailDomain_(email) ? 'RICH_HTML_GOOGLE_MAIL' : 'SIMPLE_TEXT_NON_GMAIL';
+}
+
+function isRichHtmlEmailDomain_(email) {
+  var normalized = String(email || '').trim().toLowerCase();
+  var at = normalized.lastIndexOf('@');
+  if (at === -1) return false;
+
+  var domain = normalized.slice(at + 1);
+  var allowedDomains = getRichHtmlEmailDomains_();
+  return allowedDomains.indexOf(domain) !== -1;
+}
+
+function getRichHtmlEmailDomains_() {
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty('RICH_HTML_EMAIL_DOMAINS') || 'gmail.com,googlemail.com,ched.gov.ph';
+  var parts = String(raw || '').split(',');
+  var domains = [];
+
+  for (var i = 0; i < parts.length; i++) {
+    var domain = String(parts[i] || '').trim().toLowerCase();
+    if (domain && domains.indexOf(domain) === -1) domains.push(domain);
+  }
+
+  return domains;
+}
+
+function sendConfirmationEmail_(data, emailFormat) {
   var row = data.row;
   var eventName = data.eventName || 'Event Registration Portal';
   var senderName = data.organizerName || 'Event Registration Portal';
@@ -1182,6 +1217,25 @@ function sendConfirmationEmail_(data) {
   var topicLines = [];
   if (row.breakoutSession1) topicLines.push('Topic 1: ' + row.breakoutSession1);
   if (row.breakoutSession4) topicLines.push('Topic 4: ' + row.breakoutSession4);
+
+  if (emailFormat === 'SIMPLE_TEXT_NON_GMAIL') {
+    var simpleBody = [
+      'Your registration has been recorded.',
+      '',
+      'Registration Code: ' + data.registrationCode,
+      '',
+      'Please present this code or the QR code shown on the confirmation page during check-in.'
+    ].join('\n');
+
+    MailApp.sendEmail({
+      to: row.email,
+      subject: subject,
+      body: simpleBody,
+      name: senderName
+    });
+    return;
+  }
+
   var htmlBody = '' +
     '<div style="font-family:Arial,sans-serif;color:#0f172a;font-size:14px;line-height:1.5;">' +
     '<p>Good day ' + escapeHtml_(row.fullName) + ',</p>' +
@@ -1354,7 +1408,8 @@ function getConfig_() {
     turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || '',
     eventName: props.getProperty('EVENT_NAME') || 'Event Registration Portal',
     eventOrganizerName: props.getProperty('EVENT_ORGANIZER_NAME') || 'Event Registration Portal',
-    qrPayloadPrefix: props.getProperty('QR_PAYLOAD_PREFIX') || ''
+    qrPayloadPrefix: props.getProperty('QR_PAYLOAD_PREFIX') || '',
+    richHtmlEmailDomains: props.getProperty('RICH_HTML_EMAIL_DOMAINS') || 'gmail.com,googlemail.com,ched.gov.ph'
   };
 }
 
