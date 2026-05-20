@@ -78,6 +78,8 @@ const chedcoSelected = computed(() => form.participantType === CHEDCO_PARTICIPAN
 const resourceSelected = computed(() => form.participantType === RESOURCE_PARTICIPANT)
 const otherParticipantSelected = computed(() => form.participantType === 'Other')
 const transportationEligible = computed(() => chedroSelected.value || chedcoSelected.value || resourceSelected.value)
+const designationRequired = computed(() => sasParticipantSelected.value || resourceSelected.value || chedroSelected.value || chedcoSelected.value)
+const topicBlockVisible = computed(() => !(chedroSelected.value || chedcoSelected.value || resourceSelected.value))
 const accommodationYes = computed(() => form.accommodation === 'Yes')
 const fixedAccommodationEligible = computed(() => studentSelected.value || sasParticipantSelected.value)
 const showAccommodationDateFields = computed(() => accommodationYes.value && !fixedAccommodationEligible.value)
@@ -186,7 +188,7 @@ function toggleFoodRestriction(option) {
 function validateForm() {
   const missing = []
   if (!form.participantType) missing.push('Participant type')
-  if ((sasParticipantSelected.value || resourceSelected.value) && !form.currentDesignation.trim()) missing.push('Current designation')
+  if (designationRequired.value && !form.currentDesignation.trim()) missing.push('Current designation')
   if (otherParticipantSelected.value && !form.participantTypeOther.trim()) missing.push('Participant type - Other')
 
   if (heiAffiliationSelected.value) {
@@ -208,8 +210,8 @@ function validateForm() {
   if (showAccommodationDateFields.value && !form.accommodationCheckInDate) missing.push('Accommodation check-in date')
   if (showAccommodationDateFields.value && !form.accommodationCheckOutDate) missing.push('Accommodation check-out date')
   if (selectedOtherFood.value && !form.foodRestrictionOther.trim()) missing.push('Food restrictions - Other')
-  if (!form.breakoutSession1) missing.push('Topic 1')
-  if (!form.breakoutSession4) missing.push('Topic 4')
+  if (topicBlockVisible.value && !form.breakoutSession1) missing.push('Topic 1')
+  if (topicBlockVisible.value && !form.breakoutSession4) missing.push('Topic 4')
   if (!form.privacyConsent) missing.push('Privacy consent')
 
   if (missing.length) {
@@ -326,8 +328,8 @@ async function submitForm() {
       accommodation: form.accommodation,
       accommodationCheckInDate: accommodationYes.value && fixedAccommodationEligible.value ? fixedAccommodationCheckInDate : form.accommodationCheckInDate,
       accommodationCheckOutDate: accommodationYes.value && fixedAccommodationEligible.value ? fixedAccommodationCheckOutDate : form.accommodationCheckOutDate,
-      breakoutSession1: form.breakoutSession1,
-      breakoutSession4: form.breakoutSession4,
+      breakoutSession1: topicBlockVisible.value ? form.breakoutSession1 : '',
+      breakoutSession4: topicBlockVisible.value ? form.breakoutSession4 : '',
       privacyConsent: form.privacyConsent,
       website: form.website.trim(),
       formStartedAt: startedAt,
@@ -392,7 +394,7 @@ async function fetchAffiliationOptions() {
 }
 
 watch(() => form.participantType, () => {
-  if (!sasParticipantSelected.value && !resourceSelected.value) form.currentDesignation = ''
+  if (!designationRequired.value) form.currentDesignation = ''
   if (!otherParticipantSelected.value) form.participantTypeOther = ''
   if (!heiAffiliationSelected.value) {
     form.region = ''
@@ -404,6 +406,10 @@ watch(() => form.participantType, () => {
   if (!transportationEligible.value) {
     form.transportationFromChedToTagaytay = false
     form.transportationFromTagaytayToChed = false
+  }
+  if (!topicBlockVisible.value) {
+    form.breakoutSession1 = ''
+    form.breakoutSession4 = ''
   }
 })
 
@@ -463,7 +469,7 @@ watch(turnstileHost, () => {
             <label class="mb-2 block text-sm font-medium text-slate-700">Other participant type</label>
             <input v-model="form.participantTypeOther" type="text" placeholder="Specify participant type" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
           </div>
-          <div v-if="sasParticipantSelected || resourceSelected">
+          <div v-if="designationRequired">
             <label class="mb-2 block text-sm font-medium text-slate-700">{{ sasParticipantSelected ? 'State your current designation in your HEI' : 'State your current designation' }}</label>
             <input v-model="form.currentDesignation" type="text" :placeholder="sasParticipantSelected ? 'e.g., Guidance Counselor, Dean, Faculty Member' : 'e.g., Resource Person, Facilitator, Moderator, Director'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
           </div>
@@ -630,7 +636,7 @@ watch(turnstileHost, () => {
         </div>
       </div>
 
-      <div class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
+      <div v-if="topicBlockVisible" class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
         <h3 class="text-lg font-semibold text-slate-900">Which among the Topics are you interested to join?</h3>
         <div class="mt-4 grid gap-5 lg:grid-cols-2">
           <div>

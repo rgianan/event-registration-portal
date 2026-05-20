@@ -11,7 +11,8 @@
  * - CHEDCO_SHEET_NAME         optional, defaults to CHEDCO
  * - ADMIN_KEY                 required for admin dashboard actions
  * - SUBMIT_SHARED_TOKEN       optional; if set, must match the value the client sends in submitToken
- * - TURNSTILE_SECRET_KEY      optional; if set, the client's turnstileToken is verified against Cloudflare
+ * - TURNSTILE_ENABLED         optional, defaults to TRUE. Set to FALSE only for controlled local testing.
+ * - TURNSTILE_SECRET_KEY      required when TURNSTILE_ENABLED is not FALSE; verifies the client's turnstileToken
  * - EVENT_NAME                optional, used in confirmation email
  * - EVENT_ORGANIZER_NAME      optional, used in confirmation email sender name
  * - QR_PAYLOAD_PREFIX         optional. Use either a plain prefix or a value containing {{code}}
@@ -34,6 +35,8 @@ var ACCOMMODATION_OPTIONS = ['Yes', 'No'];
 var PARTICIPANT_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office', 'Other'];
 var HEI_PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student'];
 var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator'];
+var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office'];
+var TOPIC_REQUIRED_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Other'];
 var CHEDRO_OFFICE_OPTIONS = ['CHEDRO I', 'CHEDRO II', 'CHEDRO III', 'CHEDRO IV', 'CHEDRO V', 'CHEDRO VI', 'CHEDRO VII', 'CHEDRO VIII', 'CHEDRO IX', 'CHEDRO X', 'CHEDRO XI', 'CHEDRO XII', 'CHEDRO NCR', 'CHEDRO NIR', 'CHEDRO CAR', 'CHEDRO CARAGA', 'CHEDRO MIMAROPA'];
 var CHEDCO_OFFICE_OPTIONS = ['Office of Student Development and Services', 'AFMS', 'GAD', 'HEDFS', 'IAS', 'LLS', 'OCC - Chairman', 'OCC - Comm. Apag III', 'OCC - Comm. Aquino', 'OCC - Comm. Mallari', 'OCC - Comm. Ong', 'OED', 'OIQAG', 'OPRKM', 'OPSD', 'UNIFAST'];
 var FOOD_RESTRICTION_OPTIONS = ['Vegan', 'Peanut Allergies', 'Lactose Intolerance', 'Gluten Intolerance', 'N/A', 'Other'];
@@ -233,8 +236,10 @@ function sanitizeRegistration_(payload) {
   if (!row.foodRestrictions.length) missing.push('Food Restrictions');
   if (!row.emergencyContact) missing.push('Emergency Contact');
   if (!row.accommodation) missing.push('Accommodation');
-  if (!row.breakoutSession1) missing.push('Topic 1');
-  if (!row.breakoutSession4) missing.push('Topic 4');
+  if (topicRequiredForParticipant_(row.participantType)) {
+    if (!row.breakoutSession1) missing.push('Topic 1');
+    if (!row.breakoutSession4) missing.push('Topic 4');
+  }
   if (!row.privacyConsent) missing.push('Privacy Consent');
 
   if (missing.length) throw new Error('Please complete: ' + missing.join(', '));
@@ -243,10 +248,10 @@ function sanitizeRegistration_(payload) {
   if (ACCOMMODATION_OPTIONS.indexOf(row.accommodation) === -1) throw new Error('Invalid accommodation value.');
   if (PARTICIPANT_TYPES.indexOf(row.participantType) === -1) throw new Error('Invalid participant type.');
 
-  if ((row.participantType === 'SAS Practitioner/Guidance/Faculty' || row.participantType === 'Resource Person/Facilitator/Moderator') && !row.currentDesignation) {
-    throw new Error('Current designation is required for SAS Practitioner/Guidance/Faculty and Resource Person/Facilitator/Moderator participants.');
+  if (CURRENT_DESIGNATION_REQUIRED_TYPES.indexOf(row.participantType) !== -1 && !row.currentDesignation) {
+    throw new Error('Current designation is required for this participant type.');
   }
-  if (row.participantType !== 'SAS Practitioner/Guidance/Faculty' && row.participantType !== 'Resource Person/Facilitator/Moderator') row.currentDesignation = '';
+  if (CURRENT_DESIGNATION_REQUIRED_TYPES.indexOf(row.participantType) === -1) row.currentDesignation = '';
   if (row.participantType === 'Other' && !row.participantTypeOther) throw new Error('Specify the other participant type.');
   if (row.participantType !== 'Other') row.participantTypeOther = '';
 
@@ -274,10 +279,19 @@ function sanitizeRegistration_(payload) {
   if (row.foodRestrictions.indexOf('N/A') !== -1 && row.foodRestrictions.length > 1) throw new Error('Choose either N/A or specific food restrictions, not both.');
   if (row.foodRestrictions.indexOf('Other') !== -1 && !row.foodRestrictionOther) throw new Error('Specify the other food restriction.');
   if (row.foodRestrictions.indexOf('Other') === -1) row.foodRestrictionOther = '';
-  if (BREAKOUT_SESSION_1_OPTIONS.indexOf(row.breakoutSession1) === -1) throw new Error('Invalid Topic 1 selection.');
-  if (BREAKOUT_SESSION_4_OPTIONS.indexOf(row.breakoutSession4) === -1) throw new Error('Invalid Topic 4 selection.');
+  if (topicRequiredForParticipant_(row.participantType)) {
+    if (BREAKOUT_SESSION_1_OPTIONS.indexOf(row.breakoutSession1) === -1) throw new Error('Invalid Topic 1 selection.');
+    if (BREAKOUT_SESSION_4_OPTIONS.indexOf(row.breakoutSession4) === -1) throw new Error('Invalid Topic 4 selection.');
+  } else {
+    row.breakoutSession1 = '';
+    row.breakoutSession4 = '';
+  }
 
   return row;
+}
+
+function topicRequiredForParticipant_(participantType) {
+  return TOPIC_REQUIRED_TYPES.indexOf(String(participantType || '')) !== -1;
 }
 
 function sanitizeList_(value, allowed, maxItems) {
@@ -1165,6 +1179,9 @@ function sendConfirmationEmail_(data) {
   var regionDisplay = row.region ? formatRegionLabel_(row.region) : 'N/A';
 
   var subject = '[' + eventName + '] Registration Confirmation - ' + data.registrationCode;
+  var topicLines = [];
+  if (row.breakoutSession1) topicLines.push('Topic 1: ' + row.breakoutSession1);
+  if (row.breakoutSession4) topicLines.push('Topic 4: ' + row.breakoutSession4);
   var htmlBody = '' +
     '<div style="font-family:Arial,sans-serif;color:#0f172a;font-size:14px;line-height:1.5;">' +
     '<p>Good day ' + escapeHtml_(row.fullName) + ',</p>' +
@@ -1191,8 +1208,8 @@ function sendConfirmationEmail_(data) {
     rowHtml_('Tagaytay Venue to CHED 05 June 2026, 10:00AM', escapeHtml_(row.transportationFromTagaytayToChed ? 'YES' : 'NO')) +
     rowHtml_('Participant Type', escapeHtml_(participantType)) +
     rowHtml_('Current Designation', escapeHtml_(row.currentDesignation || 'N/A')) +
-    rowHtml_('Topic 1', escapeHtml_(row.breakoutSession1)) +
-    rowHtml_('Topic 4', escapeHtml_(row.breakoutSession4)) +
+    (row.breakoutSession1 ? rowHtml_('Topic 1', escapeHtml_(row.breakoutSession1)) : '') +
+    (row.breakoutSession4 ? rowHtml_('Topic 4', escapeHtml_(row.breakoutSession4)) : '') +
     '</table>' +
     '<p style="margin-top:16px;">Please keep this email for your reference.</p>' +
     '<p>Thank you.</p>' +
@@ -1220,14 +1237,13 @@ function sendConfirmationEmail_(data) {
     'CHED to Tagaytay Venue 02 June 2026, 2:00PM: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
     'Tagaytay Venue to CHED 05 June 2026, 10:00AM: ' + (row.transportationFromTagaytayToChed ? 'YES' : 'NO'),
     'Participant Type: ' + participantType,
-    'Current Designation: ' + (row.currentDesignation || 'N/A'),
-    'Topic 1: ' + row.breakoutSession1,
-    'Topic 4: ' + row.breakoutSession4,
+    'Current Designation: ' + (row.currentDesignation || 'N/A')
+  ].concat(topicLines, [
     '',
     'Please keep this email for your reference.',
     '',
     'Thank you.'
-  ].join('\n');
+  ]).join('\n');
 
   MailApp.sendEmail({
     to: row.email,
@@ -1334,6 +1350,7 @@ function getConfig_() {
     chedcoSheetName: props.getProperty('CHEDCO_SHEET_NAME') || 'CHEDCO',
     adminKey: props.getProperty('ADMIN_KEY') || '',
     submitSharedToken: props.getProperty('SUBMIT_SHARED_TOKEN') || '',
+    turnstileEnabled: String(props.getProperty('TURNSTILE_ENABLED') || 'TRUE').toUpperCase() !== 'FALSE',
     turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || '',
     eventName: props.getProperty('EVENT_NAME') || 'Event Registration Portal',
     eventOrganizerName: props.getProperty('EVENT_ORGANIZER_NAME') || 'Event Registration Portal',
@@ -1348,8 +1365,10 @@ function verifySubmitToken_(token) {
 }
 
 function verifyTurnstile_(token) {
-  var secret = getConfig_().turnstileSecretKey;
-  if (!secret) return;
+  var config = getConfig_();
+  if (!config.turnstileEnabled) return;
+  var secret = config.turnstileSecretKey;
+  if (!secret) throw new Error('Turnstile is enabled but TURNSTILE_SECRET_KEY is not configured in Apps Script Properties.');
   if (!token) throw new Error('CAPTCHA verification required.');
   var resp;
   try {

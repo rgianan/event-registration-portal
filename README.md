@@ -48,7 +48,8 @@ Copy `.env.example` to `.env` for local development only. In Netlify, set these 
 ```env
 VITE_GAS_WEB_APP_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
 VITE_SUBMIT_SHARED_TOKEN=your-public-submit-token
-VITE_TURNSTILE_SITE_KEY=
+# Local/test Turnstile site key. Replace with your real Cloudflare Turnstile site key in production.
+VITE_TURNSTILE_SITE_KEY=1x00000000000000000000AA
 ```
 
 Do not commit `.env`, `dist`, or `node_modules`.
@@ -67,13 +68,14 @@ CHEDRO_SHEET_NAME=CHEDRO
 CHEDCO_SHEET_NAME=CHEDCO
 ADMIN_KEY=your_admin_key
 SUBMIT_SHARED_TOKEN=must_match_VITE_SUBMIT_SHARED_TOKEN_if_used
-TURNSTILE_SECRET_KEY=optional_cloudflare_secret_key
+TURNSTILE_ENABLED=TRUE
+TURNSTILE_SECRET_KEY=your_cloudflare_turnstile_secret_key
 EVENT_NAME=Event Registration Portal
 EVENT_ORGANIZER_NAME=Event Registration Portal
 QR_PAYLOAD_PREFIX=optional_prefix_or_url_with_{{code}}
 ```
 
-`SUBMIT_SHARED_TOKEN` is only a low-friction filter because the frontend value is public. For real abuse protection, enable Turnstile and configure `TURNSTILE_SECRET_KEY`.
+`SUBMIT_SHARED_TOKEN` is only a low-friction filter because the frontend value is public. Turnstile is now enabled by default on the backend through `TURNSTILE_ENABLED=TRUE`. For local testing, you may use Cloudflare's documented test secret key `1x0000000000000000000000000000000AA`; for production, replace both the frontend site key and Apps Script secret key with real Cloudflare Turnstile keys.
 
 ## Google Sheet tabs
 

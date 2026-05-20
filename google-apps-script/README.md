@@ -12,7 +12,8 @@
    - `CHEDCO_SHEET_NAME` = `CHEDCO`
    - `ADMIN_KEY`
    - `SUBMIT_SHARED_TOKEN` if used by the frontend
-   - `TURNSTILE_SECRET_KEY` if Cloudflare Turnstile is enabled
+   - `TURNSTILE_ENABLED` = `TRUE`
+   - `TURNSTILE_SECRET_KEY` = your Cloudflare Turnstile secret key
    - `EVENT_NAME`
    - `EVENT_ORGANIZER_NAME`
    - `QR_PAYLOAD_PREFIX` optional. Use `https://your-site.netlify.app/checkin?code={{code}}` only if you later build auto-fill from URL; otherwise raw code QR is fine.
@@ -54,7 +55,7 @@ Successful check-ins are also appended to the `Checkins` sheet. Duplicate scans 
 
 ### Required scopes
 
-The script uses SpreadsheetApp, MailApp, UrlFetchApp when Turnstile is enabled, CacheService, and LockService. Apps Script will request the required scopes during authorization.
+The script uses SpreadsheetApp, MailApp, UrlFetchApp for Turnstile verification, CacheService, and LockService. Apps Script will request the required scopes during authorization. For local testing, Cloudflare documents the test secret key `1x0000000000000000000000000000000AA`; replace it with your real production Turnstile secret key before public deployment.
 
 ### Accommodation defaults
 
