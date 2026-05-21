@@ -1205,6 +1205,7 @@ function sendConfirmationEmail_(data) {
     rowHtml_('Accommodation Check-in Date', escapeHtml_(row.accommodationCheckInDate || 'N/A')) +
     rowHtml_('Accommodation Check-out Date', escapeHtml_(row.accommodationCheckOutDate || 'N/A')) +
     rowHtml_('CHED to Tagaytay Venue 02 June 2026, 2:00PM', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
+    rowHtml_('CHED to Tagaytay Venue 03 June 2026, 6:00AM', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
     rowHtml_('Tagaytay Venue to CHED 05 June 2026, 10:00AM', escapeHtml_(row.transportationFromTagaytayToChed ? 'YES' : 'NO')) +
     rowHtml_('Participant Type', escapeHtml_(participantType)) +
     rowHtml_('Current Designation', escapeHtml_(row.currentDesignation || 'N/A')) +
@@ -1235,6 +1236,7 @@ function sendConfirmationEmail_(data) {
     'Accommodation Check-in Date: ' + (row.accommodationCheckInDate || 'N/A'),
     'Accommodation Check-out Date: ' + (row.accommodationCheckOutDate || 'N/A'),
     'CHED to Tagaytay Venue 02 June 2026, 2:00PM: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
+    'CHED to Tagaytay Venue 03 June 2026, 6:00AM: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
     'Tagaytay Venue to CHED 05 June 2026, 10:00AM: ' + (row.transportationFromTagaytayToChed ? 'YES' : 'NO'),
     'Participant Type: ' + participantType,
     'Current Designation: ' + (row.currentDesignation || 'N/A')
