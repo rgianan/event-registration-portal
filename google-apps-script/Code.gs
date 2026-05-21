@@ -32,7 +32,7 @@ var APP_TIME_ZONE = 'Asia/Singapore';
 
 var SEX_OPTIONS = ['Male', 'Female'];
 var ACCOMMODATION_OPTIONS = ['Yes', 'No'];
-var PARTICIPANT_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office', 'Other'];
+var PARTICIPANT_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Central Office', 'Other'];
 var HEI_PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student'];
 var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator'];
 var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office'];
