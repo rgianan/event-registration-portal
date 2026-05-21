@@ -1191,6 +1191,9 @@ function sendConfirmationEmail_(data) {
     '<p style="margin:0;font-size:28px;font-weight:800;font-family:Consolas,Monaco,monospace;color:#0f172a;">' + escapeHtml_(data.registrationCode) + '</p>' +
     '</div>' +
     '<p><img src="' + escapeHtml_(data.qrImageUrl) + '" alt="Registration QR Code" width="220" height="220" style="display:block;border:1px solid #e2e8f0;border-radius:16px;padding:8px;background:#fff;" /></p>' +
+    '<div style="margin:16px 0;padding:12px 14px;border-left:4px solid #0F6E56;background:#f0faf6;border-radius:4px;font-size:13px;line-height:1.6;color:#0f172a;">' +
+    'Please email your approved Certificate of Compliance to OSDS within 5 calendar days, in accordance with CHED Memorandum Order No. 63, series of 2017, as proof that you have been authorized by your institution to participate in the activity.' +
+    '</div>' +
     '<table style="border-collapse:collapse;width:100%;max-width:760px;font-family:Arial,sans-serif;font-size:14px;">' +
     rowHtml_('Timestamp', escapeHtml_(timestampLabel)) +
     rowHtml_('Event', escapeHtml_(eventName)) +
@@ -1222,6 +1225,9 @@ function sendConfirmationEmail_(data) {
     '',
     'Registration Code: ' + data.registrationCode,
     'QR Payload: ' + data.qrPayload,
+    '',
+      'IMPORTANT: Please email your approved Certificate of Compliance to OSDS, in accordance with CHED Memorandum Order No. 63, series of 2017, as proof that you have been authorized by your institution to participate in the activity.',
+    '',
     'Timestamp: ' + timestampLabel,
     'Event: ' + eventName,
     'Full Name: ' + row.fullName,
