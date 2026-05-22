@@ -39,6 +39,7 @@ var HEI_PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student'];
 var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Central Office', 'Resource Person/Facilitator/Moderator'];
 var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Central Office'];
 var TOPIC_REQUIRED_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Other'];
+var TOPIC_CAPACITY_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty'];
 var CHEDRO_OFFICE_OPTIONS = ['CHEDRO I', 'CHEDRO II', 'CHEDRO III', 'CHEDRO IV', 'CHEDRO V', 'CHEDRO VI', 'CHEDRO VII', 'CHEDRO VIII', 'CHEDRO IX', 'CHEDRO X', 'CHEDRO XI', 'CHEDRO XII', 'CHEDRO NCR', 'CHEDRO NIR', 'CHEDRO CAR', 'CHEDRO CARAGA', 'CHEDRO MIMAROPA'];
 var CHEDCO_OFFICE_OPTIONS = ['Office of Student Development and Services', 'AFMS', 'GAD', 'HEDFS', 'IAS', 'LLS', 'OCC - Chairman', 'OCC - Comm. Apag III', 'OCC - Comm. Aquino', 'OCC - Comm. Mallari', 'OCC - Comm. Ong', 'OED', 'OIQAG', 'OPRKM', 'OPSD', 'UNIFAST'];
 var FOOD_RESTRICTION_OPTIONS = ['Vegan', 'Peanut Allergies', 'Lactose Intolerance', 'Gluten Intolerance', 'N/A', 'Other'];
@@ -303,6 +304,9 @@ function topicRequiredForParticipant_(participantType) {
   return TOPIC_REQUIRED_TYPES.indexOf(String(participantType || '')) !== -1;
 }
 
+function breakoutCapacityAppliesForParticipant_(participantType) {
+  return TOPIC_CAPACITY_TYPES.indexOf(String(participantType || '')) !== -1;
+}
 
 function getBreakoutAvailability_(sheet, capacity) {
   capacity = Math.max(1, Number(capacity || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY);
@@ -320,8 +324,11 @@ function countBreakoutSelections_(sheet, headerName) {
   var values = sheet.getDataRange().getValues();
   var headers = values[0];
   var col = findExactHeaderIndex_(headers, headerName);
-  if (col === -1) return out;
+  var participantTypeCol = findExactHeaderIndex_(headers, 'Participant_Type');
+  if (col === -1 || participantTypeCol === -1) return out;
   for (var i = 1; i < values.length; i++) {
+    var participantType = cleanText_(values[i][participantTypeCol], 120);
+    if (!breakoutCapacityAppliesForParticipant_(participantType)) continue;
     var value = cleanText_(values[i][col], 700);
     if (!value) continue;
     out[value] = (out[value] || 0) + 1;
@@ -344,7 +351,7 @@ function buildBreakoutAvailabilityRows_(options, counts, capacity) {
 }
 
 function enforceBreakoutCapacity_(sheet, row, capacity) {
-  if (!topicRequiredForParticipant_(row.participantType)) return;
+  if (!breakoutCapacityAppliesForParticipant_(row.participantType)) return;
   capacity = Math.max(1, Number(capacity || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY);
   var availability = getBreakoutAvailability_(sheet, capacity);
   var session1 = findBreakoutAvailability_(availability.session1, row.breakoutSession1);

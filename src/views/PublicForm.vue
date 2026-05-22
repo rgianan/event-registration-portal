@@ -79,6 +79,7 @@ const otherParticipantSelected = computed(() => form.participantType === 'Other'
 const transportationEligible = computed(() => chedcoSelected.value || resourceSelected.value)
 const designationRequired = computed(() => sasParticipantSelected.value || resourceSelected.value || chedcoSelected.value)
 const topicBlockVisible = computed(() => !(chedcoSelected.value || resourceSelected.value))
+const topicCapacityApplies = computed(() => studentSelected.value || sasParticipantSelected.value)
 const accommodationYes = computed(() => form.accommodation === 'Yes')
 const fixedAccommodationEligible = computed(() => studentSelected.value || sasParticipantSelected.value)
 const showAccommodationDateFields = computed(() => accommodationYes.value && !fixedAccommodationEligible.value)
@@ -130,16 +131,16 @@ const optionLabelWithCapacity = (availability, option) => {
 const topic1SelectOptions = computed(() =>
   BREAKOUT_SESSION_1_OPTIONS.map((option) => ({
     value: option,
-    label: optionLabelWithCapacity(breakoutSession1Availability.value, option),
-    full: !!availabilityFor(breakoutSession1Availability.value, option)?.full,
+    label: topicCapacityApplies.value ? optionLabelWithCapacity(breakoutSession1Availability.value, option) : option,
+    full: topicCapacityApplies.value && !!availabilityFor(breakoutSession1Availability.value, option)?.full,
   })),
 )
 
 const topic4SelectOptions = computed(() =>
   BREAKOUT_SESSION_4_OPTIONS.map((option) => ({
     value: option,
-    label: optionLabelWithCapacity(breakoutSession4Availability.value, option),
-    full: !!availabilityFor(breakoutSession4Availability.value, option)?.full,
+    label: topicCapacityApplies.value ? optionLabelWithCapacity(breakoutSession4Availability.value, option) : option,
+    full: topicCapacityApplies.value && !!availabilityFor(breakoutSession4Availability.value, option)?.full,
   })),
 )
 
@@ -261,11 +262,11 @@ function validateForm() {
     submitError.value = 'Choose either N/A or specific food restrictions, not both.'
     return false
   }
-  if (topicBlockVisible.value && availabilityFor(breakoutSession1Availability.value, form.breakoutSession1)?.full) {
+  if (topicBlockVisible.value && topicCapacityApplies.value && availabilityFor(breakoutSession1Availability.value, form.breakoutSession1)?.full) {
     submitError.value = 'Topic 1 selection is already full. Choose another topic.'
     return false
   }
-  if (topicBlockVisible.value && availabilityFor(breakoutSession4Availability.value, form.breakoutSession4)?.full) {
+  if (topicBlockVisible.value && topicCapacityApplies.value && availabilityFor(breakoutSession4Availability.value, form.breakoutSession4)?.full) {
     submitError.value = 'Topic 4 selection is already full. Choose another topic.'
     return false
   }
@@ -676,7 +677,7 @@ watch(turnstileHost, () => {
 
       <div v-if="topicBlockVisible" class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
         <h3 class="text-lg font-semibold text-slate-900">Which among the Topics are you interested to join?</h3>
-        <p class="mt-1 text-sm text-slate-600">Each topic has a maximum of {{ breakoutCapacity }} participants. Full topics cannot be selected.</p>
+        <p v-if="topicCapacityApplies" class="mt-1 text-sm text-slate-600">Each topic has a maximum of {{ breakoutCapacity }} participants for Student and SAS Practitioner/Guidance/Faculty participants. Full topics cannot be selected.</p>
         <div class="mt-4 grid gap-5 lg:grid-cols-2">
           <div>
             <label class="mb-2 block text-sm font-medium text-slate-700">Topic 1: Focused Discussion Group</label>
@@ -712,7 +713,7 @@ watch(turnstileHost, () => {
           Please note that your registration will be received; however, your participation will only be confirmed upon submission via email to
           <a href="mailto:osds@ched.gov.ph" class="font-semibold underline decoration-amber-500 underline-offset-2">osds@ched.gov.ph</a>,
           of the duly signed Certificate of Compliance with CHED Memorandum Order (CMO) No. 63, s. 2017 on Local Off-Campus Activities (Annex A). Please
-          <a href="https://cms-cdn.e.gov.ph/CHED/pdf/2017-CMO-NO63.pdf" target="_blank" rel="noopener noreferrer" class="font-semibold underline decoration-amber-500 underline-offset-2">view the full CHED Memorandum Order No. 63</a>
+          <a href="https://cms-cdn.e.gov.ph/CHED/pdf/2017-CMO-NO63.pdf" target="_blank" rel="noopener noreferrer" class="font-semibold underline decoration-amber-500 underline-offset-2">view the full CHED Memorandum Order</a>
           for more details.
         </p>
       </div>
