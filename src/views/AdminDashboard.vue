@@ -39,6 +39,7 @@ const filteredResponses = computed(() => {
       row.accommodationCheckInDate,
       row.accommodationCheckOutDate,
       row.transportationFromChedToTagaytay,
+      row.transportationFromChedToTagaytayJune3,
       row.transportationFromTagaytayToChed,
       row.participantType,
       row.currentDesignation,
@@ -188,11 +189,11 @@ function exportCsvClient() {
   const isCheckins = activeView.value === 'checkins'
   const header = isCheckins
     ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
-    : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'CHED to Tagaytay Venue 02 June 2026, 2:00PM', 'Tagaytay Venue to CHED 05 June 2026, 10:00AM', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
+    : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'CHED to Tagaytay Venue 02 June 2026, 2:00PM', 'CHED to Tagaytay Venue 03 June 2026, 6:00AM', 'Tagaytay Venue to CHED 05 June 2026, 10:00AM', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
 
   const rows = isCheckins
     ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
-    : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.accommodationCheckInDate, row.accommodationCheckOutDate, row.transportationFromChedToTagaytay, row.transportationFromTagaytayToChed, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
+    : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.accommodationCheckInDate, row.accommodationCheckOutDate, row.transportationFromChedToTagaytay, row.transportationFromChedToTagaytayJune3, row.transportationFromTagaytayToChed, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
 
   const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
@@ -268,14 +269,13 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-9">
+      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-8">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Total</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.total }}</p></div>
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Today</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.today }}</p></div>
         <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4"><p class="text-xs uppercase tracking-wide text-violet-700">Checked in</p><p class="mt-2 text-3xl font-bold text-violet-950">{{ stats.checkedIn }}</p></div>
         <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p class="text-xs uppercase tracking-wide text-blue-700">Accommodation</p><p class="mt-2 text-3xl font-bold text-blue-950">{{ stats.accommodationYes }}</p></div>
         <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs uppercase tracking-wide text-emerald-700">SAS/Guidance/Faculty</p><p class="mt-2 text-3xl font-bold text-emerald-950">{{ stats.sasFaculty }}</p></div>
         <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><p class="text-xs uppercase tracking-wide text-amber-700">Students</p><p class="mt-2 text-3xl font-bold text-amber-950">{{ stats.student }}</p></div>
-        <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4"><p class="text-xs uppercase tracking-wide text-violet-700">CHEDRO</p><p class="mt-2 text-3xl font-bold text-violet-950">{{ stats.chedro }}</p></div>
         <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4"><p class="text-xs uppercase tracking-wide text-sky-700">CHEDCO</p><p class="mt-2 text-3xl font-bold text-sky-950">{{ stats.chedco }}</p></div>
         <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4"><p class="text-xs uppercase tracking-wide text-orange-700">Resource</p><p class="mt-2 text-3xl font-bold text-orange-950">{{ stats.resource }}</p></div>
       </div>
@@ -342,6 +342,7 @@ onMounted(() => {
                   <p class="mt-2"><span class="font-semibold">Accommodation:</span> {{ row.accommodation || '—' }}</p>
                   <p v-if="row.accommodation === 'Yes'" class="mt-1 text-xs text-slate-500">{{ row.accommodationCheckInDate || '—' }} to {{ row.accommodationCheckOutDate || '—' }}</p>
                   <p v-if="row.transportationFromChedToTagaytay === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">CHED to Tagaytay Venue 02 June 2026, 2:00PM:</span> YES</p>
+                  <p v-if="row.transportationFromChedToTagaytayJune3 === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">CHED to Tagaytay Venue 03 June 2026, 6:00AM:</span> YES</p>
                   <p v-if="row.transportationFromTagaytayToChed === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">Tagaytay Venue to CHED 05 June 2026, 10:00AM:</span> YES</p>
                   <p class="mt-2"><span class="font-semibold">Emergency:</span> {{ row.emergencyContact || '—' }}</p>
                 </td>

@@ -16,6 +16,8 @@
  * - EVENT_NAME                optional, used in confirmation email
  * - EVENT_ORGANIZER_NAME      optional, used in confirmation email sender name
  * - QR_PAYLOAD_PREFIX         optional. Use either a plain prefix or a value containing {{code}}
+ * - CERTIFICATE_COMPLIANCE_PDF_URL optional, defaults to the activity Certificate of Compliance PDF link
+ * - BREAKOUT_SESSION_CAPACITY optional, defaults to 60 per topic option
  */
 
 var ADMIN_FAILED_CACHE_KEY = 'admin:failed_attempts';
@@ -32,14 +34,16 @@ var APP_TIME_ZONE = 'Asia/Singapore';
 
 var SEX_OPTIONS = ['Male', 'Female'];
 var ACCOMMODATION_OPTIONS = ['Yes', 'No'];
-var PARTICIPANT_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office', 'Other'];
+var PARTICIPANT_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Central Office', 'Other'];
 var HEI_PARTICIPANT_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Student'];
-var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Regional Office', 'CHED Central Office', 'Resource Person/Facilitator/Moderator'];
-var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Regional Office', 'CHED Central Office'];
+var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Central Office', 'Resource Person/Facilitator/Moderator'];
+var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Central Office'];
 var TOPIC_REQUIRED_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Other'];
 var CHEDRO_OFFICE_OPTIONS = ['CHEDRO I', 'CHEDRO II', 'CHEDRO III', 'CHEDRO IV', 'CHEDRO V', 'CHEDRO VI', 'CHEDRO VII', 'CHEDRO VIII', 'CHEDRO IX', 'CHEDRO X', 'CHEDRO XI', 'CHEDRO XII', 'CHEDRO NCR', 'CHEDRO NIR', 'CHEDRO CAR', 'CHEDRO CARAGA', 'CHEDRO MIMAROPA'];
 var CHEDCO_OFFICE_OPTIONS = ['Office of Student Development and Services', 'AFMS', 'GAD', 'HEDFS', 'IAS', 'LLS', 'OCC - Chairman', 'OCC - Comm. Apag III', 'OCC - Comm. Aquino', 'OCC - Comm. Mallari', 'OCC - Comm. Ong', 'OED', 'OIQAG', 'OPRKM', 'OPSD', 'UNIFAST'];
 var FOOD_RESTRICTION_OPTIONS = ['Vegan', 'Peanut Allergies', 'Lactose Intolerance', 'Gluten Intolerance', 'N/A', 'Other'];
+var DEFAULT_BREAKOUT_SESSION_CAPACITY = 60;
+var DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL = 'https://drive.google.com/file/d/1q_pKJ0AQyqGxFvpyd-kqDKXj4gL_wbk9/view?usp=sharing';
 
 var REGION_LABELS = {
   '1': 'Region I - Ilocos Region',
@@ -132,6 +136,8 @@ function handleSubmit_(payload) {
       throw new Error('This email address is already registered. Only one registration per email address is allowed.');
     }
 
+    enforceBreakoutCapacity_(sheet, row, config.breakoutSessionCapacity);
+
     registrationCode = makeUniqueRegistrationCode_(sheet);
     qrPayload = makeQrPayload_(registrationCode, config);
     qrImageUrl = makeQrImageUrl_(qrPayload);
@@ -165,6 +171,7 @@ function handleSubmit_(payload) {
     registrationCode: registrationCode,
     qrPayload: qrPayload,
     qrImageUrl: qrImageUrl,
+    certificateCompliancePdfUrl: config.certificateCompliancePdfUrl,
     row: row
   });
 
@@ -201,6 +208,7 @@ function sanitizeRegistration_(payload) {
     chedcoOffice: cleanText_(payload.chedcoOffice, 160),
     resourceAffiliation: cleanText_(payload.resourceAffiliation, 220),
     transportationFromChedToTagaytay: payload.transportationFromChedToTagaytay === true || String(payload.transportationFromChedToTagaytay || '').toUpperCase() === 'YES',
+    transportationFromChedToTagaytayJune3: payload.transportationFromChedToTagaytayJune3 === true || String(payload.transportationFromChedToTagaytayJune3 || '').toUpperCase() === 'YES',
     transportationFromTagaytayToChed: payload.transportationFromTagaytayToChed === true || String(payload.transportationFromTagaytayToChed || '').toUpperCase() === 'YES',
     contactNumber: cleanText_(payload.contactNumber, 50),
     foodRestrictions: sanitizeList_(payload.foodRestrictions, FOOD_RESTRICTION_OPTIONS, 6),
@@ -259,6 +267,7 @@ function sanitizeRegistration_(payload) {
 
   if (TRANSPORTATION_ELIGIBLE_TYPES.indexOf(row.participantType) === -1) {
     row.transportationFromChedToTagaytay = false;
+    row.transportationFromChedToTagaytayJune3 = false;
     row.transportationFromTagaytayToChed = false;
   }
 
@@ -294,6 +303,64 @@ function topicRequiredForParticipant_(participantType) {
   return TOPIC_REQUIRED_TYPES.indexOf(String(participantType || '')) !== -1;
 }
 
+
+function getBreakoutAvailability_(sheet, capacity) {
+  capacity = Math.max(1, Number(capacity || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY);
+  var counts1 = countBreakoutSelections_(sheet, 'Breakout_Session_1');
+  var counts4 = countBreakoutSelections_(sheet, 'Breakout_Session_4');
+  return {
+    session1: buildBreakoutAvailabilityRows_(BREAKOUT_SESSION_1_OPTIONS, counts1, capacity),
+    session4: buildBreakoutAvailabilityRows_(BREAKOUT_SESSION_4_OPTIONS, counts4, capacity)
+  };
+}
+
+function countBreakoutSelections_(sheet, headerName) {
+  var out = {};
+  if (!sheet || sheet.getLastRow() < 2) return out;
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var col = findExactHeaderIndex_(headers, headerName);
+  if (col === -1) return out;
+  for (var i = 1; i < values.length; i++) {
+    var value = cleanText_(values[i][col], 700);
+    if (!value) continue;
+    out[value] = (out[value] || 0) + 1;
+  }
+  return out;
+}
+
+function buildBreakoutAvailabilityRows_(options, counts, capacity) {
+  return options.map(function (option) {
+    var count = counts[option] || 0;
+    var remaining = Math.max(0, capacity - count);
+    return {
+      option: option,
+      count: count,
+      capacity: capacity,
+      remaining: remaining,
+      full: remaining <= 0
+    };
+  });
+}
+
+function enforceBreakoutCapacity_(sheet, row, capacity) {
+  if (!topicRequiredForParticipant_(row.participantType)) return;
+  capacity = Math.max(1, Number(capacity || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY);
+  var availability = getBreakoutAvailability_(sheet, capacity);
+  var session1 = findBreakoutAvailability_(availability.session1, row.breakoutSession1);
+  var session4 = findBreakoutAvailability_(availability.session4, row.breakoutSession4);
+  if (session1 && session1.remaining <= 0) throw new Error('Topic 1 selection is already full. Please choose another Topic 1 option.');
+  if (session4 && session4.remaining <= 0) throw new Error('Topic 4 selection is already full. Please choose another Topic 4 option.');
+}
+
+function findBreakoutAvailability_(items, option) {
+  var key = normalizeKey_(option);
+  for (var i = 0; i < items.length; i++) {
+    if (normalizeKey_(items[i].option) === key) return items[i];
+  }
+  return null;
+}
+
 function sanitizeList_(value, allowed, maxItems) {
   var list = Array.isArray(value) ? value : [];
   var out = [];
@@ -314,12 +381,16 @@ function buildFullName_(firstName, middleInitial, lastName) {
 function handleGetHeiOptions_() {
   var config = getConfig_();
   var master = getHeiMaster_();
+  var breakoutAvailability = getBreakoutAvailability_(getResponseSheet_(config), config.breakoutSessionCapacity);
   return jsonOutput_({
     ok: true,
     regions: master.regions,
     heis: master.heis,
     chedroOffices: getOfficeOptions_(config.chedroSheetName, CHEDRO_OFFICE_OPTIONS),
     chedcoOffices: getOfficeOptions_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS),
+    breakoutCapacity: config.breakoutSessionCapacity,
+    breakoutSession1Availability: breakoutAvailability.session1,
+    breakoutSession4Availability: breakoutAvailability.session4,
     available: master.available,
     message: master.available ? '' : 'HEI_List sheet is missing or has unsupported headers.'
   });
@@ -533,6 +604,7 @@ function handleListResponses_(payload) {
       accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
       accommodationCheckOutDate: formatDateOnly_(obj.Accommodation_Check_Out_Date),
       transportationFromChedToTagaytay: String(obj.Transportation_From_CHED_To_Tagaytay_Venue || ''),
+      transportationFromChedToTagaytayJune3: String(obj.Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM || ''),
       transportationFromTagaytayToChed: String(obj.Transportation_From_Tagaytay_Venue_To_CHED || ''),
       participantType: participantType,
       participantTypeOther: String(obj.Participant_Type_Other || ''),
@@ -709,6 +781,7 @@ function handleResendConfirmation_(payload) {
     registrationCode: code,
     qrPayload: String(obj.QR_Payload || code),
     qrImageUrl: String(obj.QR_Image_URL || makeQrImageUrl_(String(obj.QR_Payload || code))),
+    certificateCompliancePdfUrl: getConfig_().certificateCompliancePdfUrl,
     row: row
   });
   updateEmailStatus_(code, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
@@ -745,6 +818,7 @@ function rowObjectToRegistration_(obj) {
     accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
     accommodationCheckOutDate: formatDateOnly_(obj.Accommodation_Check_Out_Date),
     transportationFromChedToTagaytay: String(obj.Transportation_From_CHED_To_Tagaytay_Venue || '').toUpperCase() === 'YES',
+    transportationFromChedToTagaytayJune3: String(obj.Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM || '').toUpperCase() === 'YES',
     transportationFromTagaytayToChed: String(obj.Transportation_From_Tagaytay_Venue_To_CHED || '').toUpperCase() === 'YES',
     participantType: String(obj.Participant_Type || ''),
     participantTypeOther: String(obj.Participant_Type_Other || ''),
@@ -777,6 +851,7 @@ function registrationToRow_(headers, data) {
     Accommodation_Check_In_Date: row.accommodationCheckInDate,
     Accommodation_Check_Out_Date: row.accommodationCheckOutDate,
     Transportation_From_CHED_To_Tagaytay_Venue: row.transportationFromChedToTagaytay ? 'YES' : 'NO',
+    Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM: row.transportationFromChedToTagaytayJune3 ? 'YES' : 'NO',
     Transportation_From_Tagaytay_Venue_To_CHED: row.transportationFromTagaytayToChed ? 'YES' : 'NO',
     CHEDRO_Office: row.chedroOffice,
     CHEDCO_Office: row.chedcoOffice,
@@ -981,6 +1056,7 @@ function getResponseHeaders_() {
     'Accommodation_Check_In_Date',
     'Accommodation_Check_Out_Date',
     'Transportation_From_CHED_To_Tagaytay_Venue',
+    'Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM',
     'Transportation_From_Tagaytay_Venue_To_CHED',
     'CHEDRO_Office',
     'CHEDCO_Office',
@@ -1205,6 +1281,7 @@ function sendConfirmationEmail_(data) {
     rowHtml_('Accommodation Check-in Date', escapeHtml_(row.accommodationCheckInDate || 'N/A')) +
     rowHtml_('Accommodation Check-out Date', escapeHtml_(row.accommodationCheckOutDate || 'N/A')) +
     rowHtml_('CHED to Tagaytay Venue 02 June 2026, 2:00PM', escapeHtml_(row.transportationFromChedToTagaytay ? 'YES' : 'NO')) +
+    rowHtml_('CHED to Tagaytay Venue 03 June 2026, 6:00AM', escapeHtml_(row.transportationFromChedToTagaytayJune3 ? 'YES' : 'NO')) +
     rowHtml_('Tagaytay Venue to CHED 05 June 2026, 10:00AM', escapeHtml_(row.transportationFromTagaytayToChed ? 'YES' : 'NO')) +
     rowHtml_('Participant Type', escapeHtml_(participantType)) +
     rowHtml_('Current Designation', escapeHtml_(row.currentDesignation || 'N/A')) +
@@ -1212,6 +1289,7 @@ function sendConfirmationEmail_(data) {
     (row.breakoutSession4 ? rowHtml_('Topic 4', escapeHtml_(row.breakoutSession4)) : '') +
     '</table>' +
     '<p style="margin-top:16px;">Please keep this email for your reference.</p>' +
+    buildCertificateComplianceHtml_(data.certificateCompliancePdfUrl) +
     '<p>Thank you.</p>' +
     '</div>';
 
@@ -1235,12 +1313,15 @@ function sendConfirmationEmail_(data) {
     'Accommodation Check-in Date: ' + (row.accommodationCheckInDate || 'N/A'),
     'Accommodation Check-out Date: ' + (row.accommodationCheckOutDate || 'N/A'),
     'CHED to Tagaytay Venue 02 June 2026, 2:00PM: ' + (row.transportationFromChedToTagaytay ? 'YES' : 'NO'),
+    'CHED to Tagaytay Venue 03 June 2026, 6:00AM: ' + (row.transportationFromChedToTagaytayJune3 ? 'YES' : 'NO'),
     'Tagaytay Venue to CHED 05 June 2026, 10:00AM: ' + (row.transportationFromTagaytayToChed ? 'YES' : 'NO'),
     'Participant Type: ' + participantType,
     'Current Designation: ' + (row.currentDesignation || 'N/A')
   ].concat(topicLines, [
     '',
     'Please keep this email for your reference.',
+    '',
+    certificateCompliancePlainText_(data.certificateCompliancePdfUrl),
     '',
     'Thank you.'
   ]).join('\n');
@@ -1259,6 +1340,33 @@ function rowHtml_(label, valueHtml) {
     '<td style="border:1px solid #e2e8f0;padding:8px 10px;background:#f8fafc;font-weight:600;width:210px;vertical-align:top;">' + escapeHtml_(label) + '</td>' +
     '<td style="border:1px solid #e2e8f0;padding:8px 10px;vertical-align:top;">' + valueHtml + '</td>' +
     '</tr>';
+}
+
+
+function certificateComplianceMessage_() {
+  return 'IMPORTANT: Please email your approved Certificate of Compliance to OSDS at osds@ched.gov.ph within 5 calendar days, as proof of your institution\'s authorization to participate in the activity, in accordance with CHED Memorandum Order No. 63, series of 2017.';
+}
+
+function buildCertificateComplianceHtml_(url) {
+  var link = normalizeDriveFileLink_(url || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL);
+  return '' +
+    '<div style="margin:16px 0;padding:14px;border:1px solid #fed7aa;background:#fff7ed;border-radius:14px;max-width:760px;">' +
+    '<p style="margin:0 0 10px;color:#9a3412;font-weight:bold;">' + escapeHtml_(certificateComplianceMessage_()) + '</p>' +
+    '<p style="margin:0;"><a href="' + escapeHtml_(link) + '" target="_blank" rel="noopener noreferrer" style="color:#1d4ed8;font-weight:bold;">View Certificate of Compliance PDF</a></p>' +
+    '</div>';
+}
+
+function certificateCompliancePlainText_(url) {
+  var link = normalizeDriveFileLink_(url || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL);
+  return certificateComplianceMessage_() + '\nCertificate of Compliance PDF: ' + link;
+}
+
+function normalizeDriveFileLink_(url) {
+  var raw = String(url || '').trim();
+  if (!raw) return DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL;
+  var match = raw.match(/\/file\/d\/([A-Za-z0-9_-]+)/) || raw.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  if (match && match[1]) return 'https://drive.google.com/file/d/' + match[1] + '/view?usp=sharing';
+  return raw;
 }
 
 function enforceSpamChecks_(row, payload) {
@@ -1354,7 +1462,9 @@ function getConfig_() {
     turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || '',
     eventName: props.getProperty('EVENT_NAME') || 'Event Registration Portal',
     eventOrganizerName: props.getProperty('EVENT_ORGANIZER_NAME') || 'Event Registration Portal',
-    qrPayloadPrefix: props.getProperty('QR_PAYLOAD_PREFIX') || ''
+    qrPayloadPrefix: props.getProperty('QR_PAYLOAD_PREFIX') || '',
+    certificateCompliancePdfUrl: normalizeDriveFileLink_(props.getProperty('CERTIFICATE_COMPLIANCE_PDF_URL') || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL),
+    breakoutSessionCapacity: Math.max(1, Number(props.getProperty('BREAKOUT_SESSION_CAPACITY') || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY)
   };
 }
 

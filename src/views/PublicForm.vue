@@ -6,7 +6,6 @@ import {
   BREAKOUT_SESSION_1_OPTIONS,
   BREAKOUT_SESSION_4_OPTIONS,
   CHEDCO_OFFICES,
-  CHEDRO_OFFICES,
   FOOD_RESTRICTION_OPTIONS,
   PARTICIPANT_TYPES,
   SEX_OPTIONS,
@@ -24,14 +23,15 @@ const turnstileWidgetId = ref(null)
 const turnstileHost = ref(null)
 const heiOptions = ref([])
 const regionOptions = ref([])
-const chedroOptions = ref([...CHEDRO_OFFICES])
 const chedcoOptions = ref([...CHEDCO_OFFICES])
 const affiliationOptionsError = ref('')
+const breakoutCapacity = ref(60)
+const breakoutSession1Availability = ref({})
+const breakoutSession4Availability = ref({})
 let startedAt = Date.now()
 
 const SAS_PARTICIPANT = 'SAS Practitioner/Guidance/Faculty'
 const STUDENT_PARTICIPANT = 'Student'
-const CHEDRO_PARTICIPANT = 'CHED Regional Office'
 const CHEDCO_PARTICIPANT = 'CHED Central Office'
 const RESOURCE_PARTICIPANT = 'Resource Person/Facilitator/Moderator'
 
@@ -41,10 +41,10 @@ const form = reactive({
   currentDesignation: '',
   region: '',
   hei: '',
-  chedroOffice: '',
   chedcoOffice: '',
   resourceAffiliation: '',
   transportationFromChedToTagaytay: false,
+  transportationFromChedToTagaytayJune3: false,
   transportationFromTagaytayToChed: false,
   email: '',
   firstName: '',
@@ -73,13 +73,12 @@ const selectedNaFood = computed(() => form.foodRestrictions.includes('N/A'))
 const sasParticipantSelected = computed(() => form.participantType === SAS_PARTICIPANT)
 const studentSelected = computed(() => form.participantType === STUDENT_PARTICIPANT)
 const heiAffiliationSelected = computed(() => sasParticipantSelected.value || studentSelected.value)
-const chedroSelected = computed(() => form.participantType === CHEDRO_PARTICIPANT)
 const chedcoSelected = computed(() => form.participantType === CHEDCO_PARTICIPANT)
 const resourceSelected = computed(() => form.participantType === RESOURCE_PARTICIPANT)
 const otherParticipantSelected = computed(() => form.participantType === 'Other')
-const transportationEligible = computed(() => chedroSelected.value || chedcoSelected.value || resourceSelected.value)
-const designationRequired = computed(() => sasParticipantSelected.value || resourceSelected.value || chedroSelected.value || chedcoSelected.value)
-const topicBlockVisible = computed(() => !(chedroSelected.value || chedcoSelected.value || resourceSelected.value))
+const transportationEligible = computed(() => chedcoSelected.value || resourceSelected.value)
+const designationRequired = computed(() => sasParticipantSelected.value || resourceSelected.value || chedcoSelected.value)
+const topicBlockVisible = computed(() => !(chedcoSelected.value || resourceSelected.value))
 const accommodationYes = computed(() => form.accommodation === 'Yes')
 const fixedAccommodationEligible = computed(() => studentSelected.value || sasParticipantSelected.value)
 const showAccommodationDateFields = computed(() => accommodationYes.value && !fixedAccommodationEligible.value)
@@ -106,9 +105,46 @@ const filteredHeiOptions = computed(() => {
 const heiSelectDisabled = computed(() => !form.region || filteredHeiOptions.value.length === 0)
 const heiMasterLoaded = computed(() => regionSelectOptions.value.length > 0 && heiOptions.value.length > 0)
 
+const normalizeAvailability = (items) => {
+  const out = {}
+  if (!Array.isArray(items)) return out
+  items.forEach((item) => {
+    const option = String(item?.option || '').trim()
+    if (!option) return
+    const capacity = Number(item?.capacity ?? breakoutCapacity.value ?? 60) || 60
+    const count = Number(item?.count || 0) || 0
+    const remaining = Math.max(0, Number(item?.remaining ?? (capacity - count)) || 0)
+    out[option] = { capacity, count, remaining, full: !!item?.full || remaining <= 0 }
+  })
+  return out
+}
+
+const availabilityFor = (availability, option) => availability?.[option] || null
+const optionLabelWithCapacity = (availability, option) => {
+  const data = availabilityFor(availability, option)
+  if (!data) return option
+  if (data.full) return `${option} — FULL`
+  return `${option} (${data.remaining} slot${data.remaining === 1 ? '' : 's'} left)`
+}
+
+const topic1SelectOptions = computed(() =>
+  BREAKOUT_SESSION_1_OPTIONS.map((option) => ({
+    value: option,
+    label: optionLabelWithCapacity(breakoutSession1Availability.value, option),
+    full: !!availabilityFor(breakoutSession1Availability.value, option)?.full,
+  })),
+)
+
+const topic4SelectOptions = computed(() =>
+  BREAKOUT_SESSION_4_OPTIONS.map((option) => ({
+    value: option,
+    label: optionLabelWithCapacity(breakoutSession4Availability.value, option),
+    full: !!availabilityFor(breakoutSession4Availability.value, option)?.full,
+  })),
+)
+
 const selectedAffiliation = computed(() => {
   if (heiAffiliationSelected.value) return form.hei.trim()
-  if (chedroSelected.value) return form.chedroOffice.trim()
   if (chedcoSelected.value) return form.chedcoOffice.trim()
   if (resourceSelected.value || otherParticipantSelected.value) return form.resourceAffiliation.trim()
   return ''
@@ -195,7 +231,6 @@ function validateForm() {
     if (!form.region.trim()) missing.push('Region')
     if (!form.hei.trim()) missing.push('Higher Education Institution')
   }
-  if (chedroSelected.value && !form.chedroOffice.trim()) missing.push('CHED Regional Office')
   if (chedcoSelected.value && !form.chedcoOffice.trim()) missing.push('CHED Central Office')
   if (resourceSelected.value && !form.resourceAffiliation.trim()) missing.push('Resource Person/Facilitator/Moderator affiliation')
 
@@ -226,6 +261,14 @@ function validateForm() {
     submitError.value = 'Choose either N/A or specific food restrictions, not both.'
     return false
   }
+  if (topicBlockVisible.value && availabilityFor(breakoutSession1Availability.value, form.breakoutSession1)?.full) {
+    submitError.value = 'Topic 1 selection is already full. Choose another topic.'
+    return false
+  }
+  if (topicBlockVisible.value && availabilityFor(breakoutSession4Availability.value, form.breakoutSession4)?.full) {
+    submitError.value = 'Topic 4 selection is already full. Choose another topic.'
+    return false
+  }
   if (showAccommodationDateFields.value && form.accommodationCheckOutDate < form.accommodationCheckInDate) {
     submitError.value = 'Accommodation check-out date cannot be earlier than check-in date.'
     return false
@@ -248,10 +291,6 @@ function validateForm() {
       return false
     }
   }
-  if (chedroSelected.value && !chedroOptions.value.includes(form.chedroOffice)) {
-    submitError.value = 'Select a valid CHED Regional Office.'
-    return false
-  }
   if (chedcoSelected.value && !chedcoOptions.value.includes(form.chedcoOffice)) {
     submitError.value = 'Select a valid CHED Central Office.'
     return false
@@ -270,10 +309,10 @@ function resetForm() {
     currentDesignation: '',
     region: '',
     hei: '',
-    chedroOffice: '',
-    chedcoOffice: '',
+      chedcoOffice: '',
     resourceAffiliation: '',
     transportationFromChedToTagaytay: false,
+    transportationFromChedToTagaytayJune3: false,
     transportationFromTagaytayToChed: false,
     email: '',
     firstName: '',
@@ -310,10 +349,10 @@ async function submitForm() {
       region: form.region.trim(),
       hei: form.hei.trim(),
       affiliation: selectedAffiliation.value,
-      chedroOffice: form.chedroOffice.trim(),
       chedcoOffice: form.chedcoOffice.trim(),
       resourceAffiliation: form.resourceAffiliation.trim(),
       transportationFromChedToTagaytay: !!form.transportationFromChedToTagaytay,
+      transportationFromChedToTagaytayJune3: !!form.transportationFromChedToTagaytayJune3,
       transportationFromTagaytayToChed: !!form.transportationFromTagaytayToChed,
       email: form.email.trim(),
       firstName: form.firstName.trim(),
@@ -377,16 +416,19 @@ async function fetchAffiliationOptions() {
     regionOptions.value = Array.isArray(data.regions)
       ? data.regions.map(normalizeRegionOption).filter((option) => option.value)
       : []
-    chedroOptions.value = Array.isArray(data.chedroOffices) && data.chedroOffices.length ? data.chedroOffices.map(String).filter(Boolean) : [...CHEDRO_OFFICES]
     chedcoOptions.value = Array.isArray(data.chedcoOffices) && data.chedcoOffices.length ? data.chedcoOffices.map(String).filter(Boolean) : [...CHEDCO_OFFICES]
+    breakoutCapacity.value = Number(data.breakoutCapacity || 60) || 60
+    breakoutSession1Availability.value = normalizeAvailability(data.breakoutSession1Availability)
+    breakoutSession4Availability.value = normalizeAvailability(data.breakoutSession4Availability)
     if (!regionOptions.value.length || !heiOptions.value.length) {
       affiliationOptionsError.value = data.message || 'No HEI master list rows were loaded.'
     }
   } catch (err) {
     heiOptions.value = []
     regionOptions.value = []
-    chedroOptions.value = [...CHEDRO_OFFICES]
     chedcoOptions.value = [...CHEDCO_OFFICES]
+    breakoutSession1Availability.value = {}
+    breakoutSession4Availability.value = {}
     affiliationOptionsError.value = err?.message || 'Unable to load the affiliation master lists.'
   } finally {
     loadingAffiliationOptions.value = false
@@ -400,11 +442,11 @@ watch(() => form.participantType, () => {
     form.region = ''
     form.hei = ''
   }
-  if (!chedroSelected.value) form.chedroOffice = ''
   if (!chedcoSelected.value) form.chedcoOffice = ''
   if (!resourceSelected.value && !otherParticipantSelected.value) form.resourceAffiliation = ''
   if (!transportationEligible.value) {
     form.transportationFromChedToTagaytay = false
+    form.transportationFromChedToTagaytayJune3 = false
     form.transportationFromTagaytayToChed = false
   }
   if (!topicBlockVisible.value) {
@@ -471,7 +513,7 @@ watch(turnstileHost, () => {
           </div>
           <div v-if="designationRequired">
             <label class="mb-2 block text-sm font-medium text-slate-700">{{ sasParticipantSelected ? 'State your current designation in your HEI' : 'State your current designation' }}</label>
-            <input v-model="form.currentDesignation" type="text" :placeholder="sasParticipantSelected ? 'e.g., Guidance Counselor, Dean, Faculty Member' : 'e.g., Mental Health Counselor, Therapist, Education Program Specialist, Director'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
+            <input v-model="form.currentDesignation" type="text" :placeholder="sasParticipantSelected ? 'e.g., Guidance Counselor, Dean, Faculty Member' : 'e.g., Resource Person, Facilitator, Moderator, Director'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
           </div>
         </div>
 
@@ -508,14 +550,6 @@ watch(turnstileHost, () => {
               </p>
             </div>
           </div>
-        </div>
-
-        <div v-if="chedroSelected" class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
-          <label class="mb-2 block text-sm font-medium text-slate-700">CHED Regional Office</label>
-          <select v-model="form.chedroOffice" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
-            <option value="" disabled>Select CHED Regional Office</option>
-            <option v-for="office in chedroOptions" :key="office" :value="office">{{ office }}</option>
-          </select>
         </div>
 
         <div v-if="chedcoSelected" class="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
@@ -627,6 +661,10 @@ watch(turnstileHost, () => {
                   <span>CHED to Tagaytay Venue 02 June 2026, 2:00PM</span>
                 </label>
                 <label class="flex items-start gap-3 text-sm text-slate-700">
+                  <input v-model="form.transportationFromChedToTagaytayJune3" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
+                  <span>CHED to Tagaytay Venue 03 June 2026, 6:00AM</span>
+                </label>
+                <label class="flex items-start gap-3 text-sm text-slate-700">
                   <input v-model="form.transportationFromTagaytayToChed" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
                   <span>Tagaytay Venue to CHED 05 June 2026, 10:00AM</span>
                 </label>
@@ -638,19 +676,20 @@ watch(turnstileHost, () => {
 
       <div v-if="topicBlockVisible" class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:p-5">
         <h3 class="text-lg font-semibold text-slate-900">Which among the Topics are you interested to join?</h3>
+        <p class="mt-1 text-sm text-slate-600">Each topic has a maximum of {{ breakoutCapacity }} participants. Full topics cannot be selected.</p>
         <div class="mt-4 grid gap-5 lg:grid-cols-2">
           <div>
             <label class="mb-2 block text-sm font-medium text-slate-700">Topic 1: Focused Discussion Group</label>
             <select v-model="form.breakoutSession1" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
               <option value="" disabled>Select topic</option>
-              <option v-for="option in BREAKOUT_SESSION_1_OPTIONS" :key="option" :value="option">{{ option }}</option>
+              <option v-for="option in topic1SelectOptions" :key="option.value" :value="option.value" :disabled="option.full">{{ option.label }}</option>
             </select>
           </div>
           <div>
             <label class="mb-2 block text-sm font-medium text-slate-700">Topic 4: Solution Lab</label>
             <select v-model="form.breakoutSession4" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900">
               <option value="" disabled>Select topic</option>
-              <option v-for="option in BREAKOUT_SESSION_4_OPTIONS" :key="option" :value="option">{{ option }}</option>
+              <option v-for="option in topic4SelectOptions" :key="option.value" :value="option.value" :disabled="option.full">{{ option.label }}</option>
             </select>
           </div>
         </div>
@@ -661,12 +700,22 @@ watch(turnstileHost, () => {
         <div ref="turnstileHost" class="min-h-16"></div>
       </div>
 
-      <label class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-        <input v-model="form.privacyConsent" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
-        <span>
-          I consent to the collection, use, processing, storage, retention, and disposal of my personal data by the Commission on Higher Education and/or its authorized event organizers, in accordance with Republic Act No. 10173, or the Data Privacy Act of 2012, and its implementing rules and regulations, for purposes of event registration, identity and attendance verification, food and accommodation planning, transportation coordination when applicable, emergency coordination, and related administrative documentation and reporting.
-        </span>
-      </label>
+      <div class="space-y-3">
+        <label class="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+          <input v-model="form.privacyConsent" type="checkbox" class="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900" />
+          <span>
+            I consent to the collection, use, processing, storage, retention, and disposal of my personal data by the Commission on Higher Education and/or its authorized event organizers, in accordance with Republic Act No. 10173, or the Data Privacy Act of 2012, and its implementing rules and regulations, for purposes of event registration, identity and attendance verification, food and accommodation planning, transportation coordination when applicable, emergency coordination, and related administrative documentation and reporting.
+          </span>
+        </label>
+
+        <p v-if="heiAffiliationSelected" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm italic leading-6 text-amber-900">
+          Please note that your registration will be received; however, your participation will only be confirmed upon submission via email to
+          <a href="mailto:osds@ched.gov.ph" class="font-semibold underline decoration-amber-500 underline-offset-2">osds@ched.gov.ph</a>,
+          of the duly signed Certificate of Compliance with CHED Memorandum Order (CMO) No. 63, s. 2017 on Local Off-Campus Activities (Annex A). Please
+          <a href="https://cms-cdn.e.gov.ph/CHED/pdf/2017-CMO-NO63.pdf" target="_blank" rel="noopener noreferrer" class="font-semibold underline decoration-amber-500 underline-offset-2">view the full CHED Memorandum Order No. 63</a>
+          for more details.
+        </p>
+      </div>
 
       <div v-if="submitError" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ submitError }}</div>
 

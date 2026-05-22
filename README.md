@@ -73,6 +73,8 @@ TURNSTILE_SECRET_KEY=your_cloudflare_turnstile_secret_key
 EVENT_NAME=Event Registration Portal
 EVENT_ORGANIZER_NAME=Event Registration Portal
 QR_PAYLOAD_PREFIX=optional_prefix_or_url_with_{{code}}
+CERTIFICATE_COMPLIANCE_PDF_URL=https://drive.google.com/file/d/1q_pKJ0AQyqGxFvpyd-kqDKXj4gL_wbk9/view?usp=sharing
+BREAKOUT_SESSION_CAPACITY=60
 ```
 
 `SUBMIT_SHARED_TOKEN` is only a low-friction filter because the frontend value is public. Turnstile is now enabled by default on the backend through `TURNSTILE_ENABLED=TRUE`. For local testing, you may use Cloudflare's documented test secret key `1x0000000000000000000000000000000AA`; for production, replace both the frontend site key and Apps Script secret key with real Cloudflare Turnstile keys.

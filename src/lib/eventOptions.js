@@ -6,7 +6,6 @@ export const PARTICIPANT_TYPES = [
   'Student',
   'SAS Practitioner/Guidance/Faculty',
   'Resource Person/Facilitator/Moderator',
-  'CHED Regional Office',
   'CHED Central Office',
   'Other',
 ]
