@@ -68,11 +68,13 @@ var REGION_LABELS = {
   '18': 'Region XVIII - Negros Island Region (NIR)'
 };
 
-// Region codes excluded from the HEI master everywhere — dropdown options AND
+// Region values excluded from the HEI master everywhere — dropdown options AND
 // submit-time validation (canonicalizeHeiSelection_ validates against the master,
 // so an excluded region's HEIs can neither be shown nor accepted). This removes
-// BARMM (code 15) regardless of whether the live HEI_List sheet still contains it.
+// BARMM even if the live HEI_List sheet uses code 15, BARMM, Bangsamoro, or
+// the full old ARMM/BARMM region label.
 var EXCLUDED_REGION_CODES = { '15': true };
+var EXCLUDED_REGION_MARKERS = ['barmm', 'bangsamoro', 'muslim mindanao'];
 
 var BREAKOUT_SESSION_1_OPTIONS = [
   'Personal Well Being (Mental health, stress management, coping skills, self care, and help seeking behavior)',
@@ -521,7 +523,7 @@ function computeHeiMaster_() {
     var name = cleanText_(values[i][heiCol], 220);
     var status = statusCol === -1 ? '' : cleanText_(values[i][statusCol], 80);
     if (!region || !name) continue;
-    if (EXCLUDED_REGION_CODES[normalizeKey_(region)]) continue;
+    if (isExcludedRegion_(region)) continue;
     if (status && status.toLowerCase() !== 'existing') continue;
 
     var dedupeKey = normalizeKey_(region) + '|' + normalizeKey_(name);
@@ -642,6 +644,16 @@ function validateOfficeOption_(value, allowed, label) {
 function formatRegionLabel_(region) {
   var raw = cleanText_(region, 120);
   return REGION_LABELS[raw] || raw;
+}
+
+function isExcludedRegion_(region) {
+  var key = normalizeKey_(region);
+  if (!key) return false;
+  if (EXCLUDED_REGION_CODES[key]) return true;
+  for (var i = 0; i < EXCLUDED_REGION_MARKERS.length; i++) {
+    if (key.indexOf(EXCLUDED_REGION_MARKERS[i]) !== -1) return true;
+  }
+  return false;
 }
 
 function compareRegionValues_(a, b) {

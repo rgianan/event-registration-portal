@@ -9,6 +9,7 @@ import {
   FOOD_RESTRICTION_OPTIONS,
   PARTICIPANT_TYPES,
   SEX_OPTIONS,
+  isExcludedRegion,
 } from '../lib/eventOptions.js'
 
 const submitting = ref(false)
@@ -95,13 +96,20 @@ const normalizeRegionOption = (option) => {
   }
 }
 
-const regionSelectOptions = computed(() => regionOptions.value.map(normalizeRegionOption).filter((option) => option.value))
+const regionSelectOptions = computed(() =>
+  regionOptions.value
+    .map(normalizeRegionOption)
+    .filter((option) => option.value && !isExcludedRegion(option.value) && !isExcludedRegion(option.label)),
+)
 const selectedRegion = computed(() => regionSelectOptions.value.find((option) => option.value === form.region) || null)
 const selectedRegionLabel = computed(() => selectedRegion.value?.label || form.region)
 const filteredHeiOptions = computed(() => {
   const region = form.region.trim().toLowerCase()
   if (!region) return []
-  return heiOptions.value.filter((hei) => String(hei.region || '').trim().toLowerCase() === region)
+  return heiOptions.value.filter((hei) => {
+    const heiRegion = String(hei.region || '').trim()
+    return heiRegion.toLowerCase() === region && !isExcludedRegion(heiRegion)
+  })
 })
 const heiSelectDisabled = computed(() => !form.region || filteredHeiOptions.value.length === 0)
 const heiMasterLoaded = computed(() => regionSelectOptions.value.length > 0 && heiOptions.value.length > 0)
@@ -411,9 +419,10 @@ async function fetchAffiliationOptions() {
       for (const region of Object.keys(byRegion)) {
         const names = Array.isArray(byRegion[region]) ? byRegion[region] : []
         const regionValue = String(region).trim()
+        if (!regionValue || isExcludedRegion(regionValue)) continue
         for (const rawName of names) {
           const name = String(rawName || '').trim()
-          if (regionValue && name) flat.push({ region: regionValue, name })
+          if (name) flat.push({ region: regionValue, name })
         }
       }
       heiOptions.value = flat
@@ -424,11 +433,11 @@ async function fetchAffiliationOptions() {
               region: String(hei?.region || '').trim(),
               name: String(hei?.name || '').trim(),
             }))
-            .filter((hei) => hei.region && hei.name)
+            .filter((hei) => hei.region && hei.name && !isExcludedRegion(hei.region))
         : []
     }
     regionOptions.value = Array.isArray(data.regions)
-      ? data.regions.map(normalizeRegionOption).filter((option) => option.value)
+      ? data.regions.map(normalizeRegionOption).filter((option) => option.value && !isExcludedRegion(option.value) && !isExcludedRegion(option.label))
       : []
     chedcoOptions.value = Array.isArray(data.chedcoOffices) && data.chedcoOffices.length ? data.chedcoOffices.map(String).filter(Boolean) : [...CHEDCO_OFFICES]
     breakoutCapacity.value = Number(data.breakoutCapacity || 60) || 60
