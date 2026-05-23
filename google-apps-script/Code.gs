@@ -7,9 +7,8 @@
  * - AUDIT_SHEET_NAME          optional, defaults to Audit
  * - CHECKINS_SHEET_NAME       optional, defaults to Checkins
  * - HEI_LIST_SHEET_NAME       optional, defaults to HEI_List
- * - CHEDRO_SHEET_NAME         optional, defaults to CHEDRO
  * - CHEDCO_SHEET_NAME         optional, defaults to CHEDCO
- * - ADMIN_KEY                 required for admin dashboard actions
+ * - USERS_SHEET_NAME          optional, defaults to Users (authorized admin accounts)
  * - SUBMIT_SHARED_TOKEN       optional; if set, must match the value the client sends in submitToken
  * - TURNSTILE_ENABLED         optional, defaults to TRUE. Set to FALSE only for controlled local testing.
  * - TURNSTILE_SECRET_KEY      required when TURNSTILE_ENABLED is not FALSE; verifies the client's turnstileToken
@@ -18,13 +17,17 @@
  * - QR_PAYLOAD_PREFIX         optional. Use either a plain prefix or a value containing {{code}}
  * - CERTIFICATE_COMPLIANCE_PDF_URL optional, defaults to the activity Certificate of Compliance PDF link
  * - BREAKOUT_SESSION_CAPACITY optional, defaults to 60 per topic option
+ *
+ * Admin authentication uses per-user accounts in the Users sheet (email + password),
+ * NOT a shared key and NOT Google Workspace identity (no Workspace console required).
+ * Seed accounts from the Apps Script editor with seedUser('email','password','Name','admin').
  */
 
-var ADMIN_FAILED_CACHE_KEY = 'admin:failed_attempts';
-var ADMIN_LOCKOUT_CACHE_KEY = 'admin:lockout';
 var ADMIN_MAX_ATTEMPTS = 5;
 var ADMIN_LOCKOUT_SECONDS = 15 * 60;
 var ADMIN_FAIL_WINDOW_SECONDS = 15 * 60;
+var ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60; // 12h: covers a full event day on one login.
+var PASSWORD_HASH_ITERATIONS = 12000; // per-login key stretching (iterated HMAC-SHA256)
 
 var STATUS_REGISTERED = 'REGISTERED';
 var CHECKIN_STATUS_CHECKED_IN = 'CHECKED_IN';
@@ -40,7 +43,6 @@ var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Central Office', 'Resource Person/Fac
 var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Central Office'];
 var TOPIC_REQUIRED_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Other'];
 var TOPIC_CAPACITY_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty'];
-var CHEDRO_OFFICE_OPTIONS = ['CHEDRO I', 'CHEDRO II', 'CHEDRO III', 'CHEDRO IV', 'CHEDRO V', 'CHEDRO VI', 'CHEDRO VII', 'CHEDRO VIII', 'CHEDRO IX', 'CHEDRO X', 'CHEDRO XI', 'CHEDRO XII', 'CHEDRO NCR', 'CHEDRO NIR', 'CHEDRO CAR', 'CHEDRO CARAGA', 'CHEDRO MIMAROPA'];
 var CHEDCO_OFFICE_OPTIONS = ['Office of Student Development and Services', 'AFMS', 'GAD', 'HEDFS', 'IAS', 'LLS', 'OCC - Chairman', 'OCC - Comm. Apag III', 'OCC - Comm. Aquino', 'OCC - Comm. Mallari', 'OCC - Comm. Ong', 'OED', 'OIQAG', 'OPRKM', 'OPSD', 'UNIFAST'];
 var FOOD_RESTRICTION_OPTIONS = ['Vegan', 'Peanut Allergies', 'Lactose Intolerance', 'Gluten Intolerance', 'N/A', 'Other'];
 var DEFAULT_BREAKOUT_SESSION_CAPACITY = 60;
@@ -61,11 +63,16 @@ var REGION_LABELS = {
   '12': 'Region XII - SOCCSKSARGEN',
   '13': 'National Capital Region (NCR)',
   '14': 'Cordillera Administrative Region (CAR)',
-  '15': 'Bangsamoro Autonomous Region in Muslim Mindanao (BARMM)',
   '16': 'Region XIII - Caraga',
   '17': 'MIMAROPA Region',
   '18': 'Region XVIII - Negros Island Region (NIR)'
 };
+
+// Region codes excluded from the HEI master everywhere — dropdown options AND
+// submit-time validation (canonicalizeHeiSelection_ validates against the master,
+// so an excluded region's HEIs can neither be shown nor accepted). This removes
+// BARMM (code 15) regardless of whether the live HEI_List sheet still contains it.
+var EXCLUDED_REGION_CODES = { '15': true };
 
 var BREAKOUT_SESSION_1_OPTIONS = [
   'Personal Well Being (Mental health, stress management, coping skills, self care, and help seeking behavior)',
@@ -205,7 +212,6 @@ function sanitizeRegistration_(payload) {
     region: cleanText_(payload.region, 120),
     hei: cleanText_(payload.hei, 220),
     affiliation: cleanText_(payload.affiliation || payload.hei, 220),
-    chedroOffice: cleanText_(payload.chedroOffice, 140),
     chedcoOffice: cleanText_(payload.chedcoOffice, 160),
     resourceAffiliation: cleanText_(payload.resourceAffiliation, 220),
     transportationFromChedToTagaytay: payload.transportationFromChedToTagaytay === true || String(payload.transportationFromChedToTagaytay || '').toUpperCase() === 'YES',
@@ -310,28 +316,34 @@ function breakoutCapacityAppliesForParticipant_(participantType) {
 
 function getBreakoutAvailability_(sheet, capacity) {
   capacity = Math.max(1, Number(capacity || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY);
-  var counts1 = countBreakoutSelections_(sheet, 'Breakout_Session_1');
-  var counts4 = countBreakoutSelections_(sheet, 'Breakout_Session_4');
+  var counts = countBreakoutSelectionsAll_(sheet);
   return {
-    session1: buildBreakoutAvailabilityRows_(BREAKOUT_SESSION_1_OPTIONS, counts1, capacity),
-    session4: buildBreakoutAvailabilityRows_(BREAKOUT_SESSION_4_OPTIONS, counts4, capacity)
+    session1: buildBreakoutAvailabilityRows_(BREAKOUT_SESSION_1_OPTIONS, counts.session1, capacity),
+    session4: buildBreakoutAvailabilityRows_(BREAKOUT_SESSION_4_OPTIONS, counts.session4, capacity)
   };
 }
 
-function countBreakoutSelections_(sheet, headerName) {
-  var out = {};
+// Single pass over the Registrations sheet that tallies both breakout sessions,
+// replacing the previous two full-sheet reads (one per session).
+function countBreakoutSelectionsAll_(sheet) {
+  var out = { session1: {}, session4: {} };
   if (!sheet || sheet.getLastRow() < 2) return out;
   var values = sheet.getDataRange().getValues();
   var headers = values[0];
-  var col = findExactHeaderIndex_(headers, headerName);
+  var col1 = findExactHeaderIndex_(headers, 'Breakout_Session_1');
+  var col4 = findExactHeaderIndex_(headers, 'Breakout_Session_4');
   var participantTypeCol = findExactHeaderIndex_(headers, 'Participant_Type');
-  if (col === -1 || participantTypeCol === -1) return out;
+  if (participantTypeCol === -1) return out;
   for (var i = 1; i < values.length; i++) {
-    var participantType = cleanText_(values[i][participantTypeCol], 120);
-    if (!breakoutCapacityAppliesForParticipant_(participantType)) continue;
-    var value = cleanText_(values[i][col], 700);
-    if (!value) continue;
-    out[value] = (out[value] || 0) + 1;
+    if (!breakoutCapacityAppliesForParticipant_(cleanText_(values[i][participantTypeCol], 120))) continue;
+    if (col1 !== -1) {
+      var v1 = cleanText_(values[i][col1], 700);
+      if (v1) out.session1[v1] = (out.session1[v1] || 0) + 1;
+    }
+    if (col4 !== -1) {
+      var v4 = cleanText_(values[i][col4], 700);
+      if (v4) out.session4[v4] = (out.session4[v4] || 0) + 1;
+    }
   }
   return out;
 }
@@ -385,31 +397,111 @@ function buildFullName_(firstName, middleInitial, lastName) {
   return normalizeSpaces_([firstName, middleInitial, lastName].filter(Boolean).join(' '));
 }
 
+var STATIC_OPTIONS_CACHE_PREFIX = 'heiOptions:v1';
+var STATIC_OPTIONS_TTL_SECONDS = 600; // 10 minutes; submit-time validation still reads the live sheet.
+
 function handleGetHeiOptions_() {
   var config = getConfig_();
-  var master = getHeiMaster_();
+  var staticPart = getCachedStaticOptions_(config);
+  // Breakout availability stays live (single read) so capacity counts are never stale.
   var breakoutAvailability = getBreakoutAvailability_(getResponseSheet_(config), config.breakoutSessionCapacity);
   return jsonOutput_({
     ok: true,
-    regions: master.regions,
-    heis: master.heis,
-    chedroOffices: getOfficeOptions_(config.chedroSheetName, CHEDRO_OFFICE_OPTIONS),
-    chedcoOffices: getOfficeOptions_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS),
+    available: staticPart.available,
+    regions: staticPart.regions,
+    heisByRegion: staticPart.heisByRegion,
+    chedcoOffices: staticPart.chedcoOffices,
     breakoutCapacity: config.breakoutSessionCapacity,
     breakoutSession1Availability: breakoutAvailability.session1,
     breakoutSession4Availability: breakoutAvailability.session4,
-    available: master.available,
-    message: master.available ? '' : 'HEI_List sheet is missing or has unsupported headers.'
+    message: staticPart.message
   });
 }
 
+// Region/HEI/CHEDCO lists change rarely, so the assembled-and-trimmed payload is
+// cached. A new HEI added by an admin is still accepted on submit immediately,
+// because canonicalizeHeiSelection_ -> getHeiMaster_ reads the live sheet; only the
+// dropdown can be up to STATIC_OPTIONS_TTL_SECONDS stale.
+function getCachedStaticOptions_(config) {
+  var cache = CacheService.getScriptCache();
+  var cached = cacheGetChunked_(cache, STATIC_OPTIONS_CACHE_PREFIX);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (err) {}
+  }
+  var built = buildStaticOptions_(config);
+  try { cachePutChunked_(cache, STATIC_OPTIONS_CACHE_PREFIX, JSON.stringify(built), STATIC_OPTIONS_TTL_SECONDS); } catch (err) {}
+  return built;
+}
+
+function buildStaticOptions_(config) {
+  var master = getHeiMaster_();
+  // master.heis is already sorted by region then name, so each region's array stays sorted.
+  // Group by region and send only names; the dropdown never uses uii/province/city, and
+  // grouping avoids repeating the region code and label on all ~2,400+ rows.
+  var heisByRegion = {};
+  for (var i = 0; i < master.heis.length; i++) {
+    var h = master.heis[i];
+    if (!heisByRegion[h.region]) heisByRegion[h.region] = [];
+    heisByRegion[h.region].push(h.name);
+  }
+  return {
+    available: master.available,
+    regions: master.regions,
+    heisByRegion: heisByRegion,
+    chedcoOffices: getOfficeOptions_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS),
+    message: master.available ? '' : 'HEI_List sheet is missing or has unsupported headers.'
+  };
+}
+
+// CacheService caps each value at ~100KB, so a large value is split across keys.
+// Partial eviction (some chunks gone) is treated as a miss and triggers a rebuild.
+function cachePutChunked_(cache, prefix, value, ttl) {
+  var size = 90000;
+  var map = {};
+  var n = 0;
+  for (var i = 0; i < value.length; i += size) {
+    map[prefix + ':' + n] = value.slice(i, i + size);
+    n++;
+  }
+  map[prefix + ':n'] = String(n);
+  cache.putAll(map, ttl);
+}
+
+function cacheGetChunked_(cache, prefix) {
+  var n = Number(cache.get(prefix + ':n') || 0);
+  if (!n) return null;
+  var keys = [];
+  for (var i = 0; i < n; i++) keys.push(prefix + ':' + i);
+  var got = cache.getAll(keys);
+  var out = '';
+  for (var k = 0; k < n; k++) {
+    var part = got[prefix + ':' + k];
+    if (part == null) return null; // a chunk expired -> rebuild
+    out += part;
+  }
+  return out;
+}
+
+// Request-level memo. Each Apps Script web-app invocation is a fresh execution,
+// so this naturally resets per request while collapsing the repeated calls within
+// a single submit (canonicalizeHeiSelection_, handleGetHeiOptions_, etc.).
+var HEI_MASTER_MEMO_ = null;
+
 function getHeiMaster_() {
+  if (HEI_MASTER_MEMO_) return HEI_MASTER_MEMO_;
+  HEI_MASTER_MEMO_ = computeHeiMaster_();
+  return HEI_MASTER_MEMO_;
+}
+
+function computeHeiMaster_() {
   var config = getConfig_();
   var ss = SpreadsheetApp.openById(config.spreadsheetId);
   var sheet = ss.getSheetByName(config.heiListSheetName);
   if (!sheet || sheet.getLastRow() < 2) return { available: false, regions: [], heis: [] };
 
-  var values = sheet.getDataRange().getDisplayValues();
+  // getValues is materially faster than getDisplayValues on a large sheet; values
+  // are plain text and cleanText_ stringifies any numeric region codes.
+  var values = sheet.getDataRange().getValues();
   var headers = values[0];
   var regionCol = findHeaderIndex_(headers, ['Region', 'Region Code', 'Region_Code', 'Region Name', 'region_name', 'CHEDRO Region']);
   var heiCol = findHeaderIndex_(headers, ['Higher Education Institution', 'HEI', 'HEI Name', 'Institution Name', 'Name']);
@@ -429,6 +521,7 @@ function getHeiMaster_() {
     var name = cleanText_(values[i][heiCol], 220);
     var status = statusCol === -1 ? '' : cleanText_(values[i][statusCol], 80);
     if (!region || !name) continue;
+    if (EXCLUDED_REGION_CODES[normalizeKey_(region)]) continue;
     if (status && status.toLowerCase() !== 'existing') continue;
 
     var dedupeKey = normalizeKey_(region) + '|' + normalizeKey_(name);
@@ -466,6 +559,21 @@ function getHeiMaster_() {
   return { available: true, regions: regions, heis: heis };
 }
 
+function readRegistrationCodeSet_(sheet) {
+  var set = {};
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return set;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var codeCol = findExactHeaderIndex_(headers, 'Registration_Code');
+  if (codeCol === -1) return set;
+  var codes = sheet.getRange(2, codeCol + 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < codes.length; i++) {
+    var code = String(codes[i][0] || '');
+    if (code) set[code] = true;
+  }
+  return set;
+}
+
 function canonicalizeHeiSelection_(row) {
   var master = getHeiMaster_();
   if (!master.available || !master.heis.length) return;
@@ -490,7 +598,6 @@ function canonicalizeAffiliationSelection_(row) {
     if (!row.hei) throw new Error('Higher Education Institution is required for Student and SAS Practitioner/Guidance/Faculty participants.');
     canonicalizeHeiSelection_(row);
     row.affiliation = row.hei;
-    row.chedroOffice = '';
     row.chedcoOffice = '';
     row.resourceAffiliation = '';
     return;
@@ -499,18 +606,9 @@ function canonicalizeAffiliationSelection_(row) {
   row.region = '';
   row.hei = '';
 
-  if (row.participantType === 'CHED Regional Office') {
-    validateOfficeOption_(row.chedroOffice, getOfficeOptions_(getConfig_().chedroSheetName, CHEDRO_OFFICE_OPTIONS), 'CHED Regional Office');
-    row.affiliation = row.chedroOffice;
-    row.chedcoOffice = '';
-    row.resourceAffiliation = '';
-    return;
-  }
-
   if (row.participantType === 'CHED Central Office') {
     validateOfficeOption_(row.chedcoOffice, getOfficeOptions_(getConfig_().chedcoSheetName, CHEDCO_OFFICE_OPTIONS), 'CHED Central Office');
     row.affiliation = row.chedcoOffice;
-    row.chedroOffice = '';
     row.resourceAffiliation = '';
     return;
   }
@@ -518,14 +616,12 @@ function canonicalizeAffiliationSelection_(row) {
   if (row.participantType === 'Resource Person/Facilitator/Moderator') {
     if (!row.resourceAffiliation) throw new Error('Affiliation is required for Resource Person/Facilitator/Moderator participants.');
     row.affiliation = row.resourceAffiliation;
-    row.chedroOffice = '';
     row.chedcoOffice = '';
     return;
   }
 
   if (row.participantType === 'Other') {
     row.affiliation = row.resourceAffiliation || row.participantTypeOther;
-    row.chedroOffice = '';
     row.chedcoOffice = '';
     return;
   }
@@ -562,13 +658,27 @@ function normalizeKey_(value) {
 }
 
 function handleAdminLogin_(payload) {
-  requireAdmin_(payload.adminKey);
-  auditLog_('admin_login_success', 'ok', '', '', 'Admin access granted.', '', '');
-  return jsonOutput_({ ok: true, message: 'Admin access granted.' });
+  var email = normalizeEmail_(payload && payload.email);
+  var password = String((payload && payload.password) || '');
+  if (!email || !password) throw new Error('Enter your email and password.');
+
+  var user = authenticateUserWithLockout_(email, password);
+  var token = issueAdminToken_(user);
+  touchUserLastLogin_(email);
+  auditLog_('admin_login_success', 'ok', email, '', 'Admin session issued (role=' + user.role + ').', '', '');
+  return jsonOutput_({
+    ok: true,
+    sessionToken: token,
+    email: user.email,
+    displayName: user.displayName,
+    role: user.role,
+    expiresInSeconds: ADMIN_SESSION_TTL_SECONDS,
+    message: 'Welcome, ' + (user.displayName || user.email) + '.'
+  });
 }
 
 function handleListResponses_(payload) {
-  requireAdmin_(payload.adminKey);
+  requireAdmin_(payload);
   var config = getConfig_();
   var sheet = getResponseSheet_(config);
   var values = sheet.getDataRange().getValues();
@@ -600,7 +710,6 @@ function handleListResponses_(payload) {
       region: String(obj.Region || ''),
       hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
       affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
-      chedroOffice: String(obj.CHEDRO_Office || ''),
       chedcoOffice: String(obj.CHEDCO_Office || ''),
       resourceAffiliation: String(obj.Resource_Affiliation || ''),
       contactNumber: String(obj.Contact_Number || ''),
@@ -635,7 +744,6 @@ function handleListResponses_(payload) {
     if (accommodation === 'Yes') stats.accommodationYes++;
     if (participantType === 'SAS Practitioner/Guidance/Faculty') stats.sasFaculty++;
     else if (participantType === 'Student') stats.student++;
-    else if (participantType === 'CHED Regional Office') stats.chedro++;
     else if (participantType === 'CHED Central Office') stats.chedco++;
     else if (participantType === 'Resource Person/Facilitator/Moderator') stats.resource++;
     else if (participantType === 'Other') stats.other++;
@@ -647,7 +755,7 @@ function handleListResponses_(payload) {
 
 
 function handleCheckInParticipant_(payload) {
-  requireAdmin_(payload.adminKey);
+  requireAdmin_(payload);
 
   var rawQrText = cleanText_(payload.qrText || payload.registrationCode || '', 500);
   var registrationCode = extractRegistrationCodeFromQr_(rawQrText);
@@ -718,7 +826,7 @@ function handleCheckInParticipant_(payload) {
 }
 
 function handleListCheckins_(payload) {
-  requireAdmin_(payload.adminKey);
+  requireAdmin_(payload);
   var limit = Number(payload.limit || 30);
   if (!limit || limit < 1) limit = 30;
   if (limit > 200) limit = 200;
@@ -751,7 +859,7 @@ function handleListCheckins_(payload) {
 }
 
 function handleUpdateReviewNote_(payload) {
-  requireAdmin_(payload.adminKey);
+  requireAdmin_(payload);
   var code = cleanText_(payload.registrationCode, 40);
   if (!code) throw new Error('Missing registration code.');
   var note = cleanText_(payload.reviewNote, 2000);
@@ -772,7 +880,7 @@ function handleUpdateReviewNote_(payload) {
 }
 
 function handleResendConfirmation_(payload) {
-  requireAdmin_(payload.adminKey);
+  requireAdmin_(payload);
   var code = cleanText_(payload.registrationCode, 40);
   if (!code) throw new Error('Missing registration code.');
 
@@ -814,7 +922,6 @@ function rowObjectToRegistration_(obj) {
     region: String(obj.Region || ''),
     hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
     affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
-    chedroOffice: String(obj.CHEDRO_Office || ''),
     chedcoOffice: String(obj.CHEDCO_Office || ''),
     resourceAffiliation: String(obj.Resource_Affiliation || ''),
     contactNumber: String(obj.Contact_Number || ''),
@@ -860,7 +967,6 @@ function registrationToRow_(headers, data) {
     Transportation_From_CHED_To_Tagaytay_Venue: row.transportationFromChedToTagaytay ? 'YES' : 'NO',
     Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM: row.transportationFromChedToTagaytayJune3 ? 'YES' : 'NO',
     Transportation_From_Tagaytay_Venue_To_CHED: row.transportationFromTagaytayToChed ? 'YES' : 'NO',
-    CHEDRO_Office: row.chedroOffice,
     CHEDCO_Office: row.chedcoOffice,
     Resource_Affiliation: row.resourceAffiliation,
     Participant_Type: row.participantType,
@@ -935,8 +1041,10 @@ function getOfficeSheet_(sheetName, defaultOffices) {
   }
 
   var firstHeader = String(sheet.getRange(1, 1).getValue() || '').trim();
-  if (firstHeader !== 'Office_Name') sheet.getRange(1, 1).setValue('Office_Name');
-  sheet.setFrozenRows(1);
+  if (firstHeader !== 'Office_Name') {
+    sheet.getRange(1, 1).setValue('Office_Name');
+    sheet.setFrozenRows(1);
+  }
 
   if (sheet.getLastRow() < 2 && defaultOffices && defaultOffices.length) {
     sheet.getRange(2, 1, defaultOffices.length, 1).setValues(defaultOffices.map(function (name) { return [name]; }));
@@ -1065,7 +1173,6 @@ function getResponseHeaders_() {
     'Transportation_From_CHED_To_Tagaytay_Venue',
     'Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM',
     'Transportation_From_Tagaytay_Venue_To_CHED',
-    'CHEDRO_Office',
     'CHEDCO_Office',
     'Resource_Affiliation'
   ];
@@ -1080,8 +1187,10 @@ function ensureHeaders_(sheet, headers) {
       break;
     }
   }
-  if (isDifferent) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  sheet.setFrozenRows(1);
+  if (isDifferent) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+  }
 }
 
 function emailAlreadyRegistered_(sheet, email) {
@@ -1128,7 +1237,6 @@ function buildParticipantPayload_(found, duplicate) {
     region: String(obj.Region || ''),
     hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
     affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
-    chedroOffice: String(obj.CHEDRO_Office || ''),
     chedcoOffice: String(obj.CHEDCO_Office || ''),
     resourceAffiliation: String(obj.Resource_Affiliation || ''),
     contactNumber: String(obj.Contact_Number || ''),
@@ -1204,9 +1312,10 @@ function updateEmailStatus_(registrationCode, sentValue, errorValue) {
 }
 
 function makeUniqueRegistrationCode_(sheet) {
+  var existing = readRegistrationCodeSet_(sheet);
   for (var i = 0; i < 20; i++) {
     var code = makeRegistrationCode_();
-    if (!registrationCodeExists_(sheet, code)) return code;
+    if (!existing[code]) return code;
   }
   throw new Error('Could not generate a unique registration code. Please try again.');
 }
@@ -1218,18 +1327,6 @@ function makeRegistrationCode_() {
   );
   var raw = Utilities.base64EncodeWebSafe(digest).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   return raw.slice(0, 16);
-}
-
-function registrationCodeExists_(sheet, code) {
-  var values = sheet.getDataRange().getValues();
-  if (!values || values.length < 2) return false;
-  var headers = values[0];
-  var codeCol = findExactHeaderIndex_(headers, 'Registration_Code');
-  if (codeCol === -1) return false;
-  for (var i = 1; i < values.length; i++) {
-    if (String(values[i][codeCol] || '') === code) return true;
-  }
-  return false;
 }
 
 function makeQrPayload_(registrationCode, config) {
@@ -1296,7 +1393,7 @@ function sendConfirmationEmail_(data) {
     (row.breakoutSession4 ? rowHtml_('Topic 4', escapeHtml_(row.breakoutSession4)) : '') +
     '</table>' +
     '<p style="margin-top:16px;">Please keep this email for your reference.</p>' +
-    buildCertificateComplianceHtml_(data.certificateCompliancePdfUrl) +
+    buildCertificateComplianceHtml_(data.certificateCompliancePdfUrl, row.participantType) +
     '<p>Thank you.</p>' +
     '</div>';
 
@@ -1328,7 +1425,7 @@ function sendConfirmationEmail_(data) {
     '',
     'Please keep this email for your reference.',
     '',
-    certificateCompliancePlainText_(data.certificateCompliancePdfUrl),
+    certificateCompliancePlainText_(data.certificateCompliancePdfUrl, row.participantType),
     '',
     'Thank you.'
   ]).join('\n');
@@ -1354,7 +1451,12 @@ function certificateComplianceMessage_() {
   return 'IMPORTANT: Please email your approved Certificate of Compliance to OSDS at osds@ched.gov.ph within 5 calendar days, as proof of your institution\'s authorization to participate in the activity, in accordance with CHED Memorandum Order No. 63, series of 2017.';
 }
 
-function buildCertificateComplianceHtml_(url) {
+function certificateComplianceRequiredForParticipant_(participantType) {
+  return HEI_PARTICIPANT_TYPES.indexOf(String(participantType || '')) !== -1;
+}
+
+function buildCertificateComplianceHtml_(url, participantType) {
+  if (!certificateComplianceRequiredForParticipant_(participantType)) return '';
   var link = normalizeDriveFileLink_(url || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL);
   return '' +
     '<div style="margin:16px 0;padding:14px;border:1px solid #fed7aa;background:#fff7ed;border-radius:14px;max-width:760px;">' +
@@ -1363,7 +1465,8 @@ function buildCertificateComplianceHtml_(url) {
     '</div>';
 }
 
-function certificateCompliancePlainText_(url) {
+function certificateCompliancePlainText_(url, participantType) {
+  if (!certificateComplianceRequiredForParticipant_(participantType)) return '';
   var link = normalizeDriveFileLink_(url || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL);
   return certificateComplianceMessage_() + '\nCertificate of Compliance PDF: ' + link;
 }
@@ -1396,26 +1499,282 @@ function submissionFingerprint_(row, payload) {
   return 'submit:' + Utilities.base64EncodeWebSafe(digest);
 }
 
-function requireAdmin_(adminKey) {
+// Data endpoints authenticate with a short-lived signed session token issued at
+// login, NOT the user's password. The token carries the user's email + role so
+// actions can be attributed in the audit log.
+function requireAdmin_(payload) {
+  var token = (payload && typeof payload === 'object') ? payload.sessionToken : payload;
+  var session = verifyAdminToken_(token);
+  if (!session) throw new Error('Your admin session has expired or is invalid. Please log in again.');
+  return session; // { email, role }
+}
+
+// Per-email lockout (NOT global): repeated failures lock only the targeted email,
+// so login-spam against one account can't lock out every admin. Tradeoff: a known
+// email can be targeted for a 15-min soft lock; raise ADMIN_MAX_ATTEMPTS or remove
+// the lockout if that matters more than brute-force slowing.
+function authenticateUserWithLockout_(email, password) {
   var cache = CacheService.getScriptCache();
-  if (cache.get(ADMIN_LOCKOUT_CACHE_KEY)) {
-    throw new Error('Admin access is temporarily locked due to repeated failed logins. Try again in ~15 minutes.');
+  var emailKey = normalizeKey_(email);
+  var lockKey = 'admin:lock:' + emailKey;
+  var failKey = 'admin:fail:' + emailKey;
+  if (cache.get(lockKey)) {
+    throw new Error('Too many failed attempts for this account. Try again in ~15 minutes.');
   }
-  var expected = getConfig_().adminKey;
-  if (!expected) throw new Error('ADMIN_KEY is not configured in Script Properties.');
-  if (String(adminKey || '').trim() !== expected) {
-    var attempts = Number(cache.get(ADMIN_FAILED_CACHE_KEY) || 0) + 1;
+
+  var user = findUserByEmail_(email);
+  var ok = user && user.active && verifyPassword_(password, user.passwordHash);
+  if (!ok) {
+    var attempts = Number(cache.get(failKey) || 0) + 1;
     if (attempts >= ADMIN_MAX_ATTEMPTS) {
-      cache.put(ADMIN_LOCKOUT_CACHE_KEY, '1', ADMIN_LOCKOUT_SECONDS);
-      cache.remove(ADMIN_FAILED_CACHE_KEY);
-      auditLog_('admin_lockout_triggered', 'failure', '', '', 'attempts=' + attempts, '', '');
-      throw new Error('Too many failed admin login attempts. Locked for 15 minutes.');
+      cache.put(lockKey, '1', ADMIN_LOCKOUT_SECONDS);
+      cache.remove(failKey);
+      auditLog_('admin_lockout_triggered', 'failure', email, '', 'attempts=' + attempts, '', '');
+    } else {
+      cache.put(failKey, String(attempts), ADMIN_FAIL_WINDOW_SECONDS);
+      auditLog_('admin_login_failed', 'failure', email, '', 'attempt ' + attempts + '/' + ADMIN_MAX_ATTEMPTS, '', '');
     }
-    cache.put(ADMIN_FAILED_CACHE_KEY, String(attempts), ADMIN_FAIL_WINDOW_SECONDS);
-    auditLog_('admin_login_failed', 'failure', '', '', 'attempt ' + attempts + '/' + ADMIN_MAX_ATTEMPTS, '', '');
-    throw new Error('Unauthorized admin request.');
+    // Same message whether the email is unknown, inactive, or the password is wrong,
+    // so the response doesn't reveal which accounts exist.
+    throw new Error('Invalid email or password.');
   }
-  cache.remove(ADMIN_FAILED_CACHE_KEY);
+  cache.remove(failKey);
+  return user;
+}
+
+// SESSION_SECRET signs/verifies tokens. It is auto-generated and stored on first use,
+// so no manual setup is needed. Rotating (deleting) this property invalidates every
+// outstanding token at once — a "log everyone out" lever.
+function getSessionSecret_() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('SESSION_SECRET');
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('SESSION_SECRET', secret);
+  }
+  return secret;
+}
+
+function signToken_(body) {
+  var raw = Utilities.computeHmacSha256Signature(body, getSessionSecret_());
+  return Utilities.base64EncodeWebSafe(raw);
+}
+
+// Stateless token: base64url(payload).base64url(HMAC-SHA256(payload)). No server-side
+// session store, so verification is just recompute-and-compare + expiry check.
+function issueAdminToken_(user) {
+  var payload = {
+    email: (user && user.email) || '',
+    role: (user && user.role) || 'admin',
+    exp: Date.now() + ADMIN_SESSION_TTL_SECONDS * 1000,
+    nonce: Utilities.getUuid()
+  };
+  var body = Utilities.base64EncodeWebSafe(JSON.stringify(payload));
+  return body + '.' + signToken_(body);
+}
+
+// Returns the decoded session ({ email, role }) when valid, otherwise null.
+function verifyAdminToken_(token) {
+  token = String(token || '').trim();
+  if (!token) return null;
+  var parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  if (!constantTimeEquals_(parts[1], signToken_(parts[0]))) return null;
+  var payload;
+  try {
+    payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
+  } catch (err) {
+    return null;
+  }
+  if (!payload || !payload.exp || Date.now() > Number(payload.exp)) return null;
+  return { email: payload.email || '', role: payload.role || 'admin' };
+}
+
+function constantTimeEquals_(a, b) {
+  a = String(a);
+  b = String(b);
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) diff |= (a.charCodeAt(i) ^ b.charCodeAt(i));
+  return diff === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Authorized users (Users sheet). Application-level credential auth — no Google
+// Workspace identity required.
+// ---------------------------------------------------------------------------
+
+var USERS_HEADERS = ['Email', 'Display_Name', 'Role', 'Active', 'Password_Hash', 'Created_At', 'Last_Login_At'];
+
+function normalizeEmail_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getUsersSheet_() {
+  var config = getConfig_();
+  var ss = SpreadsheetApp.openById(config.spreadsheetId);
+  var sheet = ss.getSheetByName(config.usersSheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(config.usersSheetName);
+    sheet.getRange(1, 1, 1, USERS_HEADERS.length).setValues([USERS_HEADERS]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  ensureHeaders_(sheet, USERS_HEADERS);
+  return sheet;
+}
+
+function findUserByEmail_(email) {
+  email = normalizeEmail_(email);
+  if (!email) return null;
+  var sheet = getUsersSheet_();
+  if (sheet.getLastRow() < 2) return null;
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var emailCol = findExactHeaderIndex_(headers, 'Email');
+  var nameCol = findExactHeaderIndex_(headers, 'Display_Name');
+  var roleCol = findExactHeaderIndex_(headers, 'Role');
+  var activeCol = findExactHeaderIndex_(headers, 'Active');
+  var hashCol = findExactHeaderIndex_(headers, 'Password_Hash');
+  if (emailCol === -1 || hashCol === -1) return null;
+  for (var i = 1; i < values.length; i++) {
+    if (normalizeEmail_(values[i][emailCol]) !== email) continue;
+    return {
+      email: email,
+      displayName: nameCol === -1 ? '' : String(values[i][nameCol] || ''),
+      role: roleCol === -1 ? 'admin' : (String(values[i][roleCol] || '').trim() || 'admin'),
+      active: activeCol === -1 ? true : isTruthyFlag_(values[i][activeCol]),
+      passwordHash: String(values[i][hashCol] || ''),
+      rowIndex: i + 1
+    };
+  }
+  return null;
+}
+
+function touchUserLastLogin_(email) {
+  try {
+    var user = findUserByEmail_(email);
+    if (!user) return;
+    var sheet = getUsersSheet_();
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var col = findExactHeaderIndex_(headers, 'Last_Login_At');
+    if (col === -1) return;
+    sheet.getRange(user.rowIndex, col + 1).setValue(new Date());
+  } catch (err) {
+    // Last-login is best-effort; never block a valid login on it.
+  }
+}
+
+function isTruthyFlag_(value) {
+  if (value === true) return true;
+  var s = String(value == null ? '' : value).trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === '1' || s === 'y' || s === 'active';
+}
+
+// Iterated HMAC-SHA256 key stretching. The stored record is self-describing
+// (algo$iterations$saltB64$hashB64) so iteration count can change without
+// invalidating existing accounts.
+function hashPassword_(password, saltBytes, iterations) {
+  var cur = Utilities.newBlob(String(password)).getBytes();
+  for (var i = 0; i < iterations; i++) {
+    cur = Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_256, cur, saltBytes);
+  }
+  return cur;
+}
+
+function makePasswordRecord_(password) {
+  if (!password || String(password).length < 8) {
+    throw new Error('Password must be at least 8 characters.');
+  }
+  var saltBytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Utilities.getUuid());
+  var hash = hashPassword_(password, saltBytes, PASSWORD_HASH_ITERATIONS);
+  return 'ihmac-sha256$' + PASSWORD_HASH_ITERATIONS + '$' + Utilities.base64Encode(saltBytes) + '$' + Utilities.base64Encode(hash);
+}
+
+function verifyPassword_(password, record) {
+  record = String(record || '');
+  var parts = record.split('$');
+  if (parts.length !== 4 || parts[0] !== 'ihmac-sha256') return false;
+  var iterations = Number(parts[1]) || 0;
+  if (!iterations) return false;
+  var saltBytes;
+  try {
+    saltBytes = Utilities.base64Decode(parts[2]);
+  } catch (err) {
+    return false;
+  }
+  var actual = Utilities.base64Encode(hashPassword_(password, saltBytes, iterations));
+  return constantTimeEquals_(actual, parts[3]);
+}
+
+// ---------------------------------------------------------------------------
+// Account management — RUN THESE FROM THE APPS SCRIPT EDITOR, not via the web app.
+// They are intentionally not reachable through doPost so accounts can only be
+// managed by someone with edit access to the script.
+// ---------------------------------------------------------------------------
+
+function seedUser(email, password, displayName, role) {
+  email = normalizeEmail_(email);
+  if (!email || email.indexOf('@') === -1) throw new Error('Provide a valid email.');
+  var record = makePasswordRecord_(password); // also enforces min length
+  var sheet = getUsersSheet_();
+  var existing = findUserByEmail_(email);
+  var now = new Date();
+  if (existing) {
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    sheet.getRange(existing.rowIndex, findExactHeaderIndex_(headers, 'Password_Hash') + 1).setValue(record);
+    sheet.getRange(existing.rowIndex, findExactHeaderIndex_(headers, 'Active') + 1).setValue(true);
+    if (displayName) sheet.getRange(existing.rowIndex, findExactHeaderIndex_(headers, 'Display_Name') + 1).setValue(displayName);
+    if (role) sheet.getRange(existing.rowIndex, findExactHeaderIndex_(headers, 'Role') + 1).setValue(role);
+    Logger.log('Updated existing user: ' + email);
+  } else {
+    sheet.appendRow([email, displayName || '', role || 'admin', true, record, now, '']);
+    Logger.log('Created user: ' + email);
+  }
+  auditLog_('admin_user_seeded', 'ok', email, '', 'role=' + (role || 'admin'), '', '');
+  return 'OK: ' + email;
+}
+
+function setUserPassword(email, password) {
+  email = normalizeEmail_(email);
+  var user = findUserByEmail_(email);
+  if (!user) throw new Error('No such user: ' + email);
+  var record = makePasswordRecord_(password);
+  var sheet = getUsersSheet_();
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  sheet.getRange(user.rowIndex, findExactHeaderIndex_(headers, 'Password_Hash') + 1).setValue(record);
+  auditLog_('admin_password_reset', 'ok', email, '', 'Password reset from editor.', '', '');
+  Logger.log('Password updated for ' + email);
+  return 'OK';
+}
+
+function setUserActive(email, active) {
+  email = normalizeEmail_(email);
+  var user = findUserByEmail_(email);
+  if (!user) throw new Error('No such user: ' + email);
+  var sheet = getUsersSheet_();
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  sheet.getRange(user.rowIndex, findExactHeaderIndex_(headers, 'Active') + 1).setValue(!!active);
+  auditLog_(active ? 'admin_user_activated' : 'admin_user_deactivated', 'ok', email, '', '', '', '');
+  Logger.log((active ? 'Activated ' : 'Deactivated ') + email);
+  return 'OK';
+}
+
+function listUsers() {
+  var sheet = getUsersSheet_();
+  if (sheet.getLastRow() < 2) { Logger.log('No users yet. Run seedUser(...).'); return []; }
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var emailCol = findExactHeaderIndex_(headers, 'Email');
+  var roleCol = findExactHeaderIndex_(headers, 'Role');
+  var activeCol = findExactHeaderIndex_(headers, 'Active');
+  var out = [];
+  for (var i = 1; i < values.length; i++) {
+    if (!values[i][emailCol]) continue;
+    out.push({ email: values[i][emailCol], role: values[i][roleCol], active: values[i][activeCol] });
+  }
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
 }
 
 function getAuditSheet_() {
@@ -1461,9 +1820,8 @@ function getConfig_() {
     auditSheetName: props.getProperty('AUDIT_SHEET_NAME') || 'Audit',
     checkinsSheetName: props.getProperty('CHECKINS_SHEET_NAME') || 'Checkins',
     heiListSheetName: props.getProperty('HEI_LIST_SHEET_NAME') || 'HEI_List',
-    chedroSheetName: props.getProperty('CHEDRO_SHEET_NAME') || 'CHEDRO',
     chedcoSheetName: props.getProperty('CHEDCO_SHEET_NAME') || 'CHEDCO',
-    adminKey: props.getProperty('ADMIN_KEY') || '',
+    usersSheetName: props.getProperty('USERS_SHEET_NAME') || 'Users',
     submitSharedToken: props.getProperty('SUBMIT_SHARED_TOKEN') || '',
     turnstileEnabled: String(props.getProperty('TURNSTILE_ENABLED') || 'TRUE').toUpperCase() !== 'FALSE',
     turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || '',
@@ -1511,14 +1869,17 @@ function setupProject_() {
   try { SpreadsheetApp.openById(config.spreadsheetId).setSpreadsheetTimeZone(APP_TIME_ZONE); } catch (err) {}
   getResponseSheet_(config);
   getCheckinSheet_(config);
-  getOfficeSheet_(config.chedroSheetName, CHEDRO_OFFICE_OPTIONS);
   getOfficeSheet_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS);
   getAuditSheet_();
-  return 'Setup complete.';
+  var usersSheet = getUsersSheet_();
+  var note = usersSheet.getLastRow() < 2
+    ? ' No admin users yet — run seedUser(\'you@example.com\', \'your-password\', \'Your Name\', \'admin\') from the editor before logging in.'
+    : '';
+  return 'Setup complete.' + note;
 }
 
 function emptyStats_() {
-  return { total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedro: 0, chedco: 0, resource: 0, other: 0 };
+  return { total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedco: 0, resource: 0, other: 0 };
 }
 
 function columnMap_(headers) {

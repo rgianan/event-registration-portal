@@ -402,18 +402,31 @@ async function fetchAffiliationOptions() {
   affiliationOptionsError.value = ''
   try {
     const data = await postJson({ action: 'getHeiOptions' })
-    heiOptions.value = Array.isArray(data.heis)
-      ? data.heis
-          .map((hei) => ({
-            region: String(hei?.region || '').trim(),
-            regionLabel: String(hei?.regionLabel || '').trim(),
-            name: String(hei?.name || '').trim(),
-            uii: String(hei?.uii || '').trim(),
-            province: String(hei?.province || '').trim(),
-            city: String(hei?.city || '').trim(),
-          }))
-          .filter((hei) => hei.region && hei.name)
-      : []
+    // Backend now sends HEIs grouped by region as { region: [names] } to keep the
+    // payload small and cacheable. Flatten to the {region, name} shape the dropdown
+    // filtering already expects. Fall back to the legacy data.heis array if present.
+    const byRegion = data && data.heisByRegion && typeof data.heisByRegion === 'object' ? data.heisByRegion : null
+    if (byRegion) {
+      const flat = []
+      for (const region of Object.keys(byRegion)) {
+        const names = Array.isArray(byRegion[region]) ? byRegion[region] : []
+        const regionValue = String(region).trim()
+        for (const rawName of names) {
+          const name = String(rawName || '').trim()
+          if (regionValue && name) flat.push({ region: regionValue, name })
+        }
+      }
+      heiOptions.value = flat
+    } else {
+      heiOptions.value = Array.isArray(data.heis)
+        ? data.heis
+            .map((hei) => ({
+              region: String(hei?.region || '').trim(),
+              name: String(hei?.name || '').trim(),
+            }))
+            .filter((hei) => hei.region && hei.name)
+        : []
+    }
     regionOptions.value = Array.isArray(data.regions)
       ? data.regions.map(normalizeRegionOption).filter((option) => option.value)
       : []

@@ -10,26 +10,6 @@ export const PARTICIPANT_TYPES = [
   'Other',
 ]
 
-export const CHEDRO_OFFICES = [
-  'CHEDRO I',
-  'CHEDRO II',
-  'CHEDRO III',
-  'CHEDRO IV',
-  'CHEDRO V',
-  'CHEDRO VI',
-  'CHEDRO VII',
-  'CHEDRO VIII',
-  'CHEDRO IX',
-  'CHEDRO X',
-  'CHEDRO XI',
-  'CHEDRO XII',
-  'CHEDRO NCR',
-  'CHEDRO NIR',
-  'CHEDRO CAR',
-  'CHEDRO CARAGA',
-  'CHEDRO MIMAROPA',
-]
-
 export const CHEDCO_OFFICES = [
   'Office of Student Development and Services',
   'AFMS',

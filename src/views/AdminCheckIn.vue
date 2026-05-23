@@ -3,10 +3,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import { useRoute } from 'vue-router'
 import { API_URL, postJson } from '../lib/api.js'
 
-const ADMIN_KEY_STORAGE = 'eventRegistrationAdminKey'
+const ADMIN_TOKEN_STORAGE = 'eventRegistrationAdminToken'
 const route = useRoute()
 
-const admin = reactive({ key: '' })
+const admin = reactive({ email: '', password: '' })
+const sessionToken = ref('')
+const currentUser = ref({ email: '', displayName: '', role: '' })
 const isAdmin = ref(false)
 const loggingIn = ref(false)
 const checkingIn = ref(false)
@@ -39,17 +41,21 @@ async function adminLogin() {
   if (loggingIn.value) return
   resetMessages()
   if (!API_URL) return (adminError.value = 'Missing VITE_GAS_WEB_APP_URL.')
-  if (!admin.key.trim()) return (adminError.value = 'Enter the admin key.')
+  if (!admin.email.trim() || !admin.password) return (adminError.value = 'Enter your email and password.')
   loggingIn.value = true
   try {
-    const data = await postJson({ action: 'adminLogin', adminKey: admin.key.trim() })
+    const data = await postJson({ action: 'adminLogin', email: admin.email.trim().toLowerCase(), password: admin.password })
+    sessionToken.value = data.sessionToken || ''
+    currentUser.value = { email: data.email || '', displayName: data.displayName || '', role: data.role || '' }
     isAdmin.value = true
-    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(ADMIN_KEY_STORAGE, admin.key.trim())
+    admin.password = ''
+    if (typeof sessionStorage !== 'undefined' && sessionToken.value) sessionStorage.setItem(ADMIN_TOKEN_STORAGE, sessionToken.value)
     adminSuccess.value = data.message || 'Admin access granted.'
     await loadRecentCheckins()
   } catch (error) {
     adminError.value = error?.message || 'Admin login failed.'
     isAdmin.value = false
+    sessionToken.value = ''
   } finally {
     loggingIn.value = false
   }
@@ -58,12 +64,27 @@ async function adminLogin() {
 function logoutAdmin() {
   stopScanner()
   isAdmin.value = false
-  admin.key = ''
+  sessionToken.value = ''
+  currentUser.value = { email: '', displayName: '', role: '' }
+  admin.password = ''
   manualCode.value = ''
   lastResult.value = null
   recentCheckins.value = []
-  if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_KEY_STORAGE)
+  if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_TOKEN_STORAGE)
   resetMessages()
+}
+
+async function restoreSession() {
+  if (typeof sessionStorage === 'undefined') return
+  const savedToken = sessionStorage.getItem(ADMIN_TOKEN_STORAGE)
+  if (!savedToken) return
+  sessionToken.value = savedToken
+  isAdmin.value = true
+  try {
+    await loadRecentCheckins()
+  } catch {
+    logoutAdmin()
+  }
 }
 
 async function loadRecentCheckins() {
@@ -71,7 +92,7 @@ async function loadRecentCheckins() {
   loadingRecent.value = true
   resetMessages()
   try {
-    const data = await postJson({ action: 'listCheckins', adminKey: admin.key.trim(), limit: 30 })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 30 })
     recentCheckins.value = Array.isArray(data.rows) ? data.rows : []
   } catch (error) {
     adminError.value = error?.message || 'Failed to load recent check-ins.'
@@ -99,7 +120,7 @@ async function checkInParticipant(qrText, method = 'CAMERA') {
   try {
     const data = await postJson({
       action: 'checkInParticipant',
-      adminKey: admin.key.trim(),
+      sessionToken: sessionToken.value,
       qrText: value,
       method,
       note: checkInNote.value.trim(),
@@ -195,10 +216,7 @@ async function scanLoop() {
 onMounted(() => {
   const queryCode = route.query?.code || route.query?.registrationCode || route.query?.reg || ''
   if (queryCode) manualCode.value = compactCode(Array.isArray(queryCode) ? queryCode[0] : queryCode)
-  if (typeof sessionStorage !== 'undefined') {
-    const savedKey = sessionStorage.getItem(ADMIN_KEY_STORAGE)
-    if (savedKey) admin.key = savedKey
-  }
+  restoreSession()
   if (typeof document !== 'undefined') {
     let robotsMeta = document.querySelector('meta[name="robots"]')
     if (!robotsMeta) {
@@ -226,16 +244,20 @@ onBeforeUnmount(() => stopScanner())
 
     <div v-if="!isAdmin" class="mx-auto max-w-xl rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 sm:p-6">
       <h2 class="text-xl font-bold text-slate-900">Unlock check-in module</h2>
-      <p class="mt-2 text-sm text-slate-600">This check-in module is separate from the admin dashboard, but it still requires the same admin key.</p>
+      <p class="mt-2 text-sm text-slate-600">This check-in module is separate from the admin dashboard, but it uses the same authorized account.</p>
       <div class="mt-5 space-y-4">
         <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">Admin key</label>
-          <input v-model="admin.key" type="password" placeholder="Enter admin key" :disabled="loggingIn" autocomplete="current-password" @keyup.enter="adminLogin" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100" />
+          <label class="mb-2 block text-sm font-medium text-slate-700">Email</label>
+          <input v-model="admin.email" type="email" placeholder="you@example.com" :disabled="loggingIn" autocomplete="username" @keyup.enter="adminLogin" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100" />
+        </div>
+        <div>
+          <label class="mb-2 block text-sm font-medium text-slate-700">Password</label>
+          <input v-model="admin.password" type="password" placeholder="Enter password" :disabled="loggingIn" autocomplete="current-password" @keyup.enter="adminLogin" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100" />
         </div>
         <div v-if="adminError" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ adminError }}</div>
         <div v-if="adminSuccess" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ adminSuccess }}</div>
         <button :disabled="loggingIn" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60" @click="adminLogin">
-          {{ loggingIn ? 'Unlocking…' : 'Unlock check-in' }}
+          {{ loggingIn ? 'Signing in…' : 'Sign in' }}
         </button>
       </div>
     </div>

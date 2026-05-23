@@ -1473,9 +1473,6 @@ St. Dominic Savio College-Ibaan",08154,8,1,Leyte,Palo,Existing
 Andres Bonifacio College,09001,9,1,Zamboanga del Norte,Dipolog City,Existing
 Ateneo de Zamboanga University,09002,9,1,Zamboanga del Sur,Zamboanga City,Existing
 Basilan State College,09003,9,2a,Basilan,Isabela City,Existing
-Basilan State College-Lamitan,09003a,15,2b,Basilan,Lamitan City,Existing
-Basilan State College-Maluso,09003b,15,2b,Basilan,Maluso,Existing
-Basilan State College-Sta. Clara,09003c,15,2b,Basilan,Lamitan City,Existing
 Brent Hospital and Colleges,09004,9,1,Zamboanga del Sur,Zamboanga City,Existing
 Claret College of Isabela,09005,9,1,Basilan,Isabela City,Existing
 DMC College Foundation,09006,9,1,Zamboanga del Norte,Dipolog City,Existing
@@ -1538,7 +1535,6 @@ Sibugay Technical Institute,09072,9,1,Zamboanga Sibugay,Ipil,Existing
 Universidad de Zamboanga - Pagadian,09074,9,1,Zamboanga del Sur,Pagadian City,Existing
 Aim High College,09076,9,1,Zamboanga Sibugay,Ipil,Existing
 Ave Maria College,09077,9,1,Zamboanga del Norte,Liloy,Existing
-Basilan State College-Tipo-Tipo,09078,15,2b,Basilan,Tipo-Tipo,Existing
 Hyrons College Philippines,09079,9,1,Zamboanga del Sur,Tukuran,Existing
 Jose Rizal Memorial State University-Tampilisan,09081,9,2b,Zamboanga del Norte,Dapitan City,Existing
 Nuevo Zamboanga College,09083,9,1,Zamboanga del Sur,Zamboanga City,Existing
@@ -1823,47 +1819,28 @@ Davao Oriental International Technology College,11195,11,1,Davao Oriental,Mati C
 Central Mindanao Colleges,12002,12,1,North Cotabato,Kidapawan City,Existing
 North Central Mindanao College,12003,10,1,Lanao del Norte,Lala,Existing
 Regency Polytechnic College,12005,12,1,South Cotabato,Koronadal City,Existing
-Cotabato State University,12006,15,2a,Maguindanao,Cotabato City,Existing
 Cotabato Foundation College of Science and Technology,12008,12,2a,North Cotabato,Arakan,Existing
-Cotabato Foundation College of Science and Technology-Datu Montawal Campus,12008b,15,2b,Maguindanao,Datu Montawal,Existing
 Cotabato Foundation College of Science and Technology-Pikit Campus,12008d,12,2b,North Cotabato,Pikit,Existing
 Cotabato Medical Foundation College,12010,12,1,North Cotabato,Midsayap,Existing
-De La Vida College,12011,15,1,Maguindanao,Cotabato City,Existing
 Dr. Domingo B. Tamondong Memorial Hospital and College Foundation,12012,12,1,Sultan Kudarat,Esperanza,Existing
-Dr. P. Ocampo Colleges,12013,15,1,Maguindanao,Cotabato City,Existing
-Headstart College of Cotabato,12016,15,1,Maguindanao,Cotabato City,Existing
 Iligan Capitol College,12018,10,1,Lanao del Norte,Iligan City,Existing
 Iligan Medical Center College,12020,10,1,Lanao del Norte,Iligan City,Existing
-Jamiatu Marawi Al-Islamia Foundation,12021,15,1,Lanao Del Sur,Marawi City,Existing
-Jamiatu Muslim Mindanao,12022,15,1,Lanao Del Sur,Marawi City,Existing
-Jamiatul Philippine Al-Islamia,12023,15,1,Lanao Del Sur,Marawi City,Existing
 King's College of Isulan,12025,12,1,Sultan Kudarat,Isulan,Existing
 Mindanao State University-Lanao Del Norte Agricultural College,12028,10,2b,Lanao del Norte,Sultan Naga Dimaporo,Existing
-Mindanao State University-Lanao National College of Arts and Trades,12030,15,2b,Lanao Del Sur,Marawi City,Existing
 Lebak Family Doctors' School of Midwifery,12031,12,1,Sultan Kudarat,Lebak,Existing
 Mindanao State University-Maigo School of Arts and Trades,12033,10,2b,Lanao del Norte,Maigo,Existing
-Mapandi Memorial College,12034,15,1,Lanao Del Sur,Marawi City,Existing
-Marawi Capitol College Foundation,12035,15,1,Lanao Del Sur,Marawi City,Existing
-Mindanao Capitol College,12037,15,1,Maguindanao,Cotabato City,Existing
 Adventist Medical Center College,12039,10,1,Lanao del Norte,Iligan City,Existing
-Mindanao State University,12040,15,2a,Lanao Del Sur,Marawi City,Existing
 Mindanao State University - Iligan Institute of Technology,12042,10,2b,Lanao del Norte,Iligan City,Existing
 University of Southern Mindanao-Kidapawan City Campus,12044,12,2b,North Cotabato,Kidapawan City,Existing
 Colegio de Kidapawan,12045,12,1,North Cotabato,Kidapawan City,Existing
-Notre Dame Center For Catechesis,12047,15,1,Maguindanao,Cotabato City,Existing
-Notre Dame Hospital and School of Midwifery,12048,15,1,Maguindanao,Cotabato City,Existing
 Notre Dame of Kidapawan College,12049,12,1,North Cotabato,Kidapawan City,Existing
 Notre Dame of Midsayap College,12050,12,1,North Cotabato,Midsayap,Existing
 Notre Dame of Salaman College,12051,12,1,Sultan Kudarat,Lebak,Existing
 Notre Dame of Tacurong College,12052,12,1,Sultan Kudarat,Tacurong City,Existing
-Notre Dame University,12053,15,1,Maguindanao,Cotabato City,Existing
-Pacasum College,12055,15,1,Lanao Del Sur,Marawi City,Existing
-St. Benedict College of Cotabato,12059,15,1,Maguindanao,Cotabato City,Existing
 St. Michael's College,12061,10,1,Lanao del Norte,Iligan City,Existing
 St. Peter's College,12062,10,1,Lanao del Norte,Iligan City,Existing
 Santa Monica Institute of Technology,12063,10,1,Lanao del Norte,Iligan City,Existing
 Senator Ninoy Aquino College Foundation,12064,12,1,Sultan Kudarat,Sen. Ninoy Aquino,Existing
-Shariff Kabunsuan College,12065,15,1,Maguindanao,Cotabato City,Existing
 Southern Baptist College,12066,12,1,North Cotabato,Mlang,Existing
 Southern Christian College,12067,12,1,North Cotabato,Midsayap,Existing
 Southern Mindanao Institute of Technology,12068,12,1,Sultan Kudarat,Tacurong City,Existing
@@ -1878,24 +1855,15 @@ Sultan Kudarat State University-Palimbang,12074f,12,2b,Sultan Kudarat,Palimbang,
 Sultan Kudarat State University-Tacurong,12074g,12,2b,Sultan Kudarat,Tacurong City,Existing
 University of Southern Mindanao,12078,12,2a,North Cotabato,Kabacan,Existing
 North Valley College Foundation,12086,12,1,North Cotabato,Kidapawan City,Existing
-Mindanao Islamic Computer College,12087,15,1,Lanao Del Sur,Marawi City,Existing
-STI College-Cotabato,12089,15,1,Maguindanao,Cotabato City,Existing
 Lyceum of Iligan Foundation,12090,10,1,Lanao del Norte,Iligan City,Existing
 Central Mindanao Computer School,12093,12,1,North Cotabato,Mlang,Existing
 Christ The King College De Maranding,12094,10,1,Lanao del Norte,Lala,Existing
-Datu Mala Muslim Mindanao Islamic College Foundation,12095,15,1,Lanao del Sur,Marawi City,Existing
 Lanao School of Science and Technology,12096,10,1,Lanao del Norte,Lala,Existing
-Antonio R. Pacheco College,12097,15,1,Maguindanao,Cotabato City,Existing
-AMA Computer College-Cotabato City,12098,15,1,Maguindanao,Cotabato City,Existing
-Bubong Marzok Memorial Foundation College,12099,15,1,Lanao Del Sur,Marawi City,Existing
 Masters Technological Institute of Mindanao,12100,10,1,Lanao del Norte,Iligan City,Existing
-Senator Ninoy Aquino College Foundation-Marawi,12102,15,1,Lanao Del Sur,Marawi City,Existing
 Adventist College of Technology,12104,12,1,South Cotabato,Tupi,Existing
 Goldenstate College,12105,12,1,South Cotabato,General Santos City,Existing
-Kutawato Darrusalam College,12107,15,1,Maguindanao,Cotabato City,Existing
 General Santos Doctors' Medical School Foundation,12108,12,1,South Cotabato,General Santos City,Existing
 Notre Dame-Siena College of Polomolok,12110,12,1,South Cotabato,Polomolok,Existing
-Notre Dame RVM College of Cotabato,12111,15,1,Maguindanao,Cotabato City,Existing
 Brokenshire College SOCSKSARGEN,12112,12,1,South Cotabato,General Santos City,Existing
 Holy Child College of Information Technology,12114,12,1,South Cotabato,Surallah,Existing
 South East Asian Institute of Technology,12115,12,1,South Cotabato,Tupi,Existing
@@ -1906,7 +1874,6 @@ ACLC College of Marbel,12120,12,1,South Cotabato,Koronadal City,Existing
 Korbel Foundation College,12121,12,1,South Cotabato,Koronadal City,Existing
 STI College of Koronadal City,12122,12,1,South Cotabato,Koronadal City,Existing
 i-Link College of Science and Technology,12124,12,1,North Cotabato,Midsayap,Existing
-Coland Systems Technology,12125,15,1,Maguindanao,Cotabato City,Existing
 Goldenstate College of Koronadal City,12126,12,1,South Cotabato,Koronadal City,Existing
 Marvelous College of Technology,12127,12,1,South Cotabato,Koronadal City,Existing
 STI College - Koronadal City - Tacurong City Branch,12129,12,1,Sultan Kudarat,Tacurong City,Existing
@@ -1928,9 +1895,7 @@ West Celebes College of Technology,12148,12,1,Sultan Kudarat,Lebak,Existing
 South Central Mindanao College of Science and Technology,12149,12,1,Sultan Kudarat,Tacurong City,Existing
 Filipino Canadian Community College Foundation,12150,12,1,South Cotabato,General Santos City,Existing
 New Era University-General Santos City,12151,12,1,South Cotabato,General Santos City,Existing
-Academia de Tecnologia in Mindanao,12152,15,1,Maguindanao,Cotabato City,Existing
 Glan Institute of Technology,12153,12,3,Sarangani,Glan,Existing
-Jamiat Cotabato and Institute of Technology,12154,15,1,Maguindanao,Cotabato City,Existing
 Southern Philippine Technical College of Koronadal,12155,12,1,South Cotabato,Koronadal City,Existing
 Goldenstate College of Kiamba,12157,12,1,South Cotabato,Kiamba,Existing
 Goldenstate College of Maasim,12158,12,1,Sarangani,Sarangani,Existing
@@ -2348,82 +2313,6 @@ Theological Foundation for Asia (Asia Pacific Theological Seminary),14067,14,1,B
 Star College,14068,14,1,Benguet,La Trinidad,Existing
 Grace Bible Integrated Academy,14069,14,1,Benguet,Baguio City,Existing
 Philippine Baptist Theological Seminary,14070,14,1,Benguet,Baguio City,Existing
-Gani L. Abpi College,15001,15,1,Maguindanao,Datu Piang,Existing
-Central Sulu College,15002,15,1,Sulu,Siasi,Existing
-Hadji Butu School of Arts and Trades,15003,15,4c,Sulu,Jolo,Existing
-Lanao Agricultural College,15004,15,4c,Lanao Del Sur,Lumbatan,Existing
-Lapak Agricultural School,15005,15,4c,Sulu,Siasi,Existing
-Mindanao State University-Maguindanao,15006,15,2b,Maguindanao,Datu Odin Sinsuat,Existing
-Mindanao State University-Sulu Development Technical College,15007,15,2b,Sulu,Jolo,Existing
-Mindanao State University-Tawi-Tawi College of Technology and Oceanography,15008,15,2b,Tawi-Tawi,Bongao,Existing
-Notre Dame of Jolo College,15009,15,1,Sulu,Jolo,Existing
-Parang Foundation College,15010,15,1,Maguindanao,Parang,Existing
-Shariff Kabunsuan College (Annex),15011,15,1,Maguindanao,Parang,Existing
-Sultan Kudarat Islamic Academy Foundation College,15012,15,1,Maguindanao,Sultan Kudarat (Nuling),Existing
-Sulu State University,15013,15,2a,Sulu,Jolo,Existing
-Tawi-Tawi Regional Agricultural College,15014,15,2a,Tawi-Tawi,Bongao,Existing
-Tawi-Tawi Regional Agricultural College - Tarawakan,15014a,15,2b,Tawi-Tawi,Bongao,Existing
-Tawi-Tawi Regional Agricultural College - Languyan,15014b,15,2b,Tawi-Tawi,Languyan,Existing
-Tawi-Tawi Regional Agricultural College-Simunul,15014c,15,2b,Tawi-Tawi,Simunul,Existing
-Tawi-Tawi Regional Agricultural College - Sibutu,15014d,15,2b,Tawi-Tawi,Sibutu,Existing
-Unda Memorial National Agricultural School,15015,15,4c,Lanao Del Sur,Masiu,Existing
-Upi Agricultural School-Provincial Technical Institute of Agriculture,15017,15,4c,Maguindanao,Upi,Existing
-Adiong Memorial Polytechnic State College,15019,15,2a,Lanao Del Sur,Ditsaan Ramain,Existing
-Balabagan Trade School,15020,15,4c,Lanao Del Sur,Balabagan,Existing
-Del Sur Good Shepherd College,15023,15,1,Lanao Del Sur,Wao,Existing
-Southwestern Mindanao Islamic Institute,15025,15,1,Sulu,Jolo,Existing
-Tawi-Tawi School of Midwifery,15026,15,1,Tawi-Tawi,Bongao,Existing
-Abubakar Computer Learning Center Foundation,15027,15,1,Tawi-Tawi,Bongao,Existing
-Lanao Educational Institute,15028,15,1,Lanao Del Sur,Malabang,Existing
-Mahardika Institute of Technology,15029,15,1,Tawi-Tawi,Bongao,Existing
-Dansalan Polytechnic College,15031,15,1,Lanao Del Sur,Marawi City,Existing
-Philippine Muslim Teachers' College,15032,15,1,Lanao Del Sur,Marawi City,Existing
-SAL Foundation College,15033,15,1,Maguindanao,Parang,Existing
-Mindanao Autonomous College Foundation,15035,15,1,Basilan,Lamitan City,Existing
-SPA College,15036,15,1,Maguindanao,Datu Piang,Existing
-Datu Ibrahim Paglas Memorial College,15037,15,1,Maguindanao,Datu Paglas,Existing
-Cali Paramedical College Foundation,15038,15,1,Lanao Del Sur,Marawi City,Existing
-Masiricampo Abantas Memorial Educational Center,15039,15,1,Lanao Del Sur,Marawi City,Existing
-Marawi Islamic College,15040,15,1,Lanao Del Sur,Marawi City,Existing
-Saffrullah M. Dipatuan Foundation Academy,15041,15,1,Lanao Del Sur,Marawi City,Existing
-South Upi College,15042,15,1,Maguindanao,South Upi,Existing
-St. Benedict College of Maguindanao,15043,15,1,Maguindanao,Parang,Existing
-Mariam School of Nursing,15044,15,1,Basilan,Lamitan City,Existing
-Lanao Islamic Paramedical College Foundation,15047,15,1,Lanao Del Sur,Marawi City,Existing
-Regional Madrasah Graduate Academy,15048,15,4a,Maguindanao,Buluan,Existing
-Lake Lanao College,15049,15,1,Lanao Del Sur,Marawi City,Existing
-Wisdom International School for Higher Education Studies,15050,15,1,Lanao Del Sur,Marawi City,Existing
-Datu Blo Umpar Adiong Agricultural School Foundation,15052,15,1,Lanao Del Sur,Marawi City,Existing
-Bai Malgen Mama College,15054,15,1,Maguindanao,Datu Odin Sinsuat,Existing
-Eastern Kutawato College,15055,15,1,Maguindanao,Buluan,Existing
-RC-Al Khwarizmi International College Foundation,15056,15,1,Lanao Del Sur,Marawi City,Existing
-Mindanao Institute of Healthcare Professionals,15057,15,1,Lanao Del Sur,Marawi City,Existing
-Hardam Furigay Colleges Foundation,15058,15,1,Basilan,Lamitan City,Existing
-University of Southern Mindanao - Buluan,15059,15,2b,Maguindanao,Buluan,Existing
-Philippine Engineering and Agro-Industrial College,15060,15,1,Lanao Del Sur,Marawi City,Existing
-Illana Bay Integrated Computer College,15061,15,1,Maguindanao,Parang,Existing
-Khadijah Mohammad Islamic Academy,15062,15,1,Lanao Del Sur,Marawi City,Existing
-Iranun Foundation College,15063,15,1,Lanao del Sur,Kapatagan,Existing
-Lanao Central College,15064,15,1,Lanao Del Sur,Marawi City,Existing
-Sulu College of Technology,15065,15,1,Sulu,Indanan,Existing
-Enthusiastic College,15066,15,1,Maguindanao,Buldon,Existing
-Hadji Datu Saidona Pendatun Foundation College,15068,15,1,Maguindanao,Gen. S.K. Pendatun,Existing
-General Diamongun K. Mangondato College of Agriculture and Fisheries,15069,15,1,Lanao del Sur,Masiu,Existing
-Al Bangsamoro Shari'ah and Professional Education College,15070,15,1,Lanao del Sur,Marawi City,Existing
-As-Salihein Integrated School Foundation,15071,15,1,Lanao del Sur,Tamparan,Existing
-Mindanao Autonomous College Foundation-Maluso,15072,15,1,Basilan,Maluso,Existing
-Jamiatu Dansalan Al-Islamia Foundation,15073,15,1,Lanao del Sur,Marawi City,Existing
-Muslim Mindanao Integrated College Academy,15074,15,1,Lanao del Sur,Marawi City,Existing
-Maranao Islamic Institute - Ma'Had Maranao Al-Islamie,15075,15,1,Lanao del Sur,Tamparan,Existing
-Binnor Pangandaman Integrated College,15076,15,1,Lanao del Sur,Wao,Existing
-Colegio de Upi,15077,15,1,Maguindanao,Upi,Existing
-Lamitan Technical Institute,15078,15,1,Basilan,Lamitan City,Existing
-Mindanaoan Integrated Academy,15079,15,1,Lanao del Sur,Wao,Existing
-Universal College Foundation of Southeast Asia and the Pacific,15080,15,1,Basilan,Lamitan City,Existing
-Tamparan Populace Islamic College,15081,15,1,Lanao del Sur,Tamparan,Existing
-Philippine Last Frontier College,15082,15,1,Tawi-Tawi,Bongao,Existing
-Iqra Development Academy,15083,15,1,Lanao del Sur,Tamparan,Existing
-Asma Khadijah Islamic Academy,15084,15,1,Lanao del Sur,Picong (Sultan Gumander),Existing
 Siargao Island Institute of Technology,16003,16,1,Surigao del Norte,Dapa,Existing
 Caraga Institute of Technology,16004,16,1,Agusan del Norte,Kitcharao,Existing
 De La Salle John Bosco College,16005,16,1,Surigao del Sur,Bislig City,Existing

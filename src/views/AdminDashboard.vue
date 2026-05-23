@@ -15,10 +15,13 @@ const checkins = ref([])
 const lastLoadedAt = ref('')
 const activeView = ref('registrations')
 
-const ADMIN_KEY_STORAGE = 'eventRegistrationAdminKey'
+const ADMIN_TOKEN_STORAGE = 'eventRegistrationAdminToken'
 
-const admin = reactive({ key: '', search: '' })
-const stats = ref({ total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedro: 0, chedco: 0, resource: 0, other: 0 })
+const sessionToken = ref('')
+const currentUser = ref({ email: '', displayName: '', role: '' })
+const restoringSession = ref(false)
+const admin = reactive({ email: '', password: '', search: '' })
+const stats = ref({ total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedco: 0, resource: 0, other: 0 })
 
 const filteredResponses = computed(() => {
   const q = admin.search.trim().toLowerCase()
@@ -87,17 +90,21 @@ async function adminLogin() {
   if (loggingIn.value) return
   resetAdminMessages()
   if (!API_URL) return (adminError.value = 'Missing VITE_GAS_WEB_APP_URL.')
-  if (!admin.key.trim()) return (adminError.value = 'Enter the admin key.')
+  if (!admin.email.trim() || !admin.password) return (adminError.value = 'Enter your email and password.')
   loggingIn.value = true
   try {
-    const data = await postJson({ action: 'adminLogin', adminKey: admin.key.trim() })
+    const data = await postJson({ action: 'adminLogin', email: admin.email.trim().toLowerCase(), password: admin.password })
+    sessionToken.value = data.sessionToken || ''
+    currentUser.value = { email: data.email || '', displayName: data.displayName || '', role: data.role || '' }
     isAdmin.value = true
-    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(ADMIN_KEY_STORAGE, admin.key.trim())
+    admin.password = '' // never keep the password in memory after login
+    if (typeof sessionStorage !== 'undefined' && sessionToken.value) sessionStorage.setItem(ADMIN_TOKEN_STORAGE, sessionToken.value)
     adminSuccess.value = data.message || 'Admin access granted.'
     await loadResponses()
   } catch (error) {
     adminError.value = error?.message || 'Admin login failed.'
     isAdmin.value = false
+    sessionToken.value = ''
   } finally {
     loggingIn.value = false
   }
@@ -108,7 +115,7 @@ async function loadResponses() {
   loadingResponses.value = true
   resetAdminMessages()
   try {
-    const data = await postJson({ action: 'listResponses', adminKey: admin.key.trim() })
+    const data = await postJson({ action: 'listResponses', sessionToken: sessionToken.value })
     responses.value = Array.isArray(data.rows) ? data.rows : []
     stats.value = data.stats || stats.value
     lastLoadedAt.value = new Date().toLocaleString()
@@ -124,7 +131,7 @@ async function loadCheckins() {
   loadingCheckins.value = true
   resetAdminMessages()
   try {
-    const data = await postJson({ action: 'listCheckins', adminKey: admin.key.trim(), limit: 200 })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 200 })
     checkins.value = Array.isArray(data.rows) ? data.rows : []
     lastLoadedAt.value = new Date().toLocaleString()
   } catch (error) {
@@ -152,7 +159,7 @@ async function saveReviewNote(row) {
   try {
     const data = await postJson({
       action: 'updateReviewNote',
-      adminKey: admin.key.trim(),
+      sessionToken: sessionToken.value,
       registrationCode: row.registrationCode,
       reviewNote: (row.reviewNote || '').trim(),
     })
@@ -170,7 +177,7 @@ async function resendConfirmation(row) {
   resendingId.value = row.registrationCode
   resetAdminMessages()
   try {
-    const data = await postJson({ action: 'resendConfirmation', adminKey: admin.key.trim(), registrationCode: row.registrationCode })
+    const data = await postJson({ action: 'resendConfirmation', sessionToken: sessionToken.value, registrationCode: row.registrationCode })
     adminSuccess.value = data.message || 'Confirmation email resent.'
     row.emailSent = data.emailSent ? 'YES' : row.emailSent
     row.emailError = data.emailError || ''
@@ -182,7 +189,12 @@ async function resendConfirmation(row) {
 }
 
 function csvEscape(value) {
-  return `"${String(value ?? '').replaceAll('"', '""')}"`
+  let str = String(value ?? '')
+  // Neutralize spreadsheet formula injection: a cell that starts with =, +, -, @,
+  // or a leading tab/CR can execute as a formula in Excel/Sheets. Prefix with a
+  // single quote so the value is always treated as text.
+  if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`
+  return `"${str.replaceAll('"', '""')}"`
 }
 
 function exportCsvClient() {
@@ -207,19 +219,35 @@ function exportCsvClient() {
 
 function logoutAdmin() {
   isAdmin.value = false
+  sessionToken.value = ''
+  currentUser.value = { email: '', displayName: '', role: '' }
+  admin.password = ''
   responses.value = []
   checkins.value = []
   admin.search = ''
   activeView.value = 'registrations'
-  if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_KEY_STORAGE)
+  if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_TOKEN_STORAGE)
   resetAdminMessages()
 }
 
-onMounted(() => {
-  if (typeof sessionStorage !== 'undefined') {
-    const savedKey = sessionStorage.getItem(ADMIN_KEY_STORAGE)
-    if (savedKey && !admin.key) admin.key = savedKey
+async function restoreSession() {
+  if (typeof sessionStorage === 'undefined') return
+  const savedToken = sessionStorage.getItem(ADMIN_TOKEN_STORAGE)
+  if (!savedToken) return
+  restoringSession.value = true
+  sessionToken.value = savedToken
+  isAdmin.value = true
+  try {
+    await loadResponses() // a valid token loads; an expired one throws -> logout
+  } catch {
+    logoutAdmin()
+  } finally {
+    restoringSession.value = false
   }
+}
+
+onMounted(() => {
+  restoreSession()
   if (typeof document !== 'undefined') {
     let robotsMeta = document.querySelector('meta[name="robots"]')
     if (!robotsMeta) {
@@ -236,11 +264,15 @@ onMounted(() => {
   <section class="mx-auto w-full max-w-[1500px] rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8 min-[1920px]:max-w-none">
     <div v-if="!isAdmin" class="mx-auto max-w-xl rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 sm:rounded-[1.75rem] sm:p-6">
       <h2 class="text-2xl font-bold text-slate-900">Admin dashboard access</h2>
-      <p class="mt-2 text-sm text-slate-600">Use the admin key to view registrations, check-ins, exports, review notes, and QR resend actions.</p>
+      <p class="mt-2 text-sm text-slate-600">Sign in with your authorized account to view registrations, check-ins, exports, review notes, and QR resend actions.</p>
       <div class="mt-5 space-y-4">
         <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">Admin key</label>
-          <input v-model="admin.key" type="password" placeholder="Enter admin key" :disabled="loggingIn" autocomplete="current-password" @keyup.enter="adminLogin" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100" />
+          <label class="mb-2 block text-sm font-medium text-slate-700">Email</label>
+          <input v-model="admin.email" type="email" placeholder="you@example.com" :disabled="loggingIn" autocomplete="username" @keyup.enter="adminLogin" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100" />
+        </div>
+        <div>
+          <label class="mb-2 block text-sm font-medium text-slate-700">Password</label>
+          <input v-model="admin.password" type="password" placeholder="Enter password" :disabled="loggingIn" autocomplete="current-password" @keyup.enter="adminLogin" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100" />
         </div>
         <div v-if="adminError" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ adminError }}</div>
         <div v-if="adminSuccess" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ adminSuccess }}</div>
@@ -249,7 +281,7 @@ onMounted(() => {
             <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="4"></circle>
             <path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
           </svg>
-          {{ loggingIn ? 'Unlocking…' : 'Unlock dashboard' }}
+          {{ loggingIn ? 'Signing in…' : 'Sign in' }}
         </button>
       </div>
     </div>
