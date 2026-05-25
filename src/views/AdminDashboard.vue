@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { API_URL, postJson } from '../lib/api.js'
 
 const loadingResponses = ref(false)
@@ -14,6 +14,16 @@ const responses = ref([])
 const checkins = ref([])
 const lastLoadedAt = ref('')
 const activeView = ref('registrations')
+const PAGE_SIZE_OPTIONS = [
+  { label: '25', value: 25 },
+  { label: '50', value: 50 },
+  { label: '100', value: 100 },
+  { label: 'All', value: 'all' },
+]
+const pagination = reactive({
+  registrations: { page: 1, pageSize: 25 },
+  checkins: { page: 1, pageSize: 25 },
+})
 
 const ADMIN_TOKEN_STORAGE = 'eventRegistrationAdminToken'
 
@@ -69,6 +79,7 @@ const filteredCheckins = computed(() => {
       row.email,
       row.fullName,
       row.region,
+      row.sexAtBirth,
       row.affiliation || row.hei,
       row.participantType,
       row.status,
@@ -80,6 +91,58 @@ const filteredCheckins = computed(() => {
       .some((v) => String(v).toLowerCase().includes(q)),
   )
 })
+
+function effectivePageSize(pager, total) {
+  return pager.pageSize === 'all' ? Math.max(total, 1) : Number(pager.pageSize || 25)
+}
+
+function pageCountFor(rows, pager) {
+  if (pager.pageSize === 'all') return 1
+  return Math.max(1, Math.ceil(rows.length / effectivePageSize(pager, rows.length)))
+}
+
+function paginatedRows(rows, pager) {
+  if (pager.pageSize === 'all') return rows
+  const size = effectivePageSize(pager, rows.length)
+  const maxPage = pageCountFor(rows, pager)
+  const currentPage = Math.min(Math.max(Number(pager.page) || 1, 1), maxPage)
+  const start = (currentPage - 1) * size
+  return rows.slice(start, start + size)
+}
+
+const registrationPageCount = computed(() => pageCountFor(filteredResponses.value, pagination.registrations))
+const checkinPageCount = computed(() => pageCountFor(filteredCheckins.value, pagination.checkins))
+const paginatedResponses = computed(() => paginatedRows(filteredResponses.value, pagination.registrations))
+const paginatedCheckins = computed(() => paginatedRows(filteredCheckins.value, pagination.checkins))
+
+function visibleRangeLabel(rows, pager) {
+  const total = rows.length
+  if (!total) return 'Showing 0 of 0'
+  if (pager.pageSize === 'all') return `Showing all ${total}`
+  const size = effectivePageSize(pager, total)
+  const page = Math.min(Math.max(Number(pager.page) || 1, 1), pageCountFor(rows, pager))
+  const start = (page - 1) * size + 1
+  const end = Math.min(start + size - 1, total)
+  return `Showing ${start}-${end} of ${total}`
+}
+
+function previousPage(pager) {
+  pager.page = Math.max(1, Number(pager.page || 1) - 1)
+}
+
+function nextPage(pager, pageCount) {
+  pager.page = Math.min(pageCount, Number(pager.page || 1) + 1)
+}
+
+watch(() => admin.search, () => {
+  pagination.registrations.page = 1
+  pagination.checkins.page = 1
+})
+
+watch(() => pagination.registrations.pageSize, () => { pagination.registrations.page = 1 })
+watch(() => pagination.checkins.pageSize, () => { pagination.checkins.page = 1 })
+watch(registrationPageCount, (count) => { if (pagination.registrations.page > count) pagination.registrations.page = count })
+watch(checkinPageCount, (count) => { if (pagination.checkins.page > count) pagination.checkins.page = count })
 
 function resetAdminMessages() {
   adminError.value = ''
@@ -100,20 +163,28 @@ async function adminLogin() {
     admin.password = '' // never keep the password in memory after login
     if (typeof sessionStorage !== 'undefined' && sessionToken.value) sessionStorage.setItem(ADMIN_TOKEN_STORAGE, sessionToken.value)
     adminSuccess.value = data.message || 'Admin access granted.'
-    await loadResponses()
   } catch (error) {
     adminError.value = error?.message || 'Admin login failed.'
     isAdmin.value = false
     sessionToken.value = ''
-  } finally {
     loggingIn.value = false
+    return
   }
+  // Auth succeeded — drop the login spinner now and load the table separately so
+  // the dashboard renders immediately instead of waiting on a full-sheet scan.
+  loggingIn.value = false
+  const role = String(currentUser.value.role || '').toLowerCase()
+  if (role && role !== 'admin') {
+    adminError.value = 'This account is for check-in only. Open the Check-in page (/checkin) instead.'
+    return
+  }
+  loadResponses()
 }
 
 async function loadResponses() {
   if (!isAdmin.value) return
   loadingResponses.value = true
-  resetAdminMessages()
+  adminError.value = ''
   try {
     const data = await postJson({ action: 'listResponses', sessionToken: sessionToken.value })
     responses.value = Array.isArray(data.rows) ? data.rows : []
@@ -129,9 +200,9 @@ async function loadResponses() {
 async function loadCheckins() {
   if (!isAdmin.value) return
   loadingCheckins.value = true
-  resetAdminMessages()
+  adminError.value = ''
   try {
-    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 200 })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 'all' })
     checkins.value = Array.isArray(data.rows) ? data.rows : []
     lastLoadedAt.value = new Date().toLocaleString()
   } catch (error) {
@@ -143,6 +214,7 @@ async function loadCheckins() {
 
 async function switchView(view) {
   activeView.value = view
+  pagination[view].page = 1
   if (view === 'registrations' && !responses.value.length) await loadResponses()
   if (view === 'checkins' && !checkins.value.length) await loadCheckins()
 }
@@ -200,11 +272,11 @@ function csvEscape(value) {
 function exportCsvClient() {
   const isCheckins = activeView.value === 'checkins'
   const header = isCheckins
-    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
+    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Assigned Sex at Birth', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
     : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'CHED to Tagaytay Venue 02 June 2026, 2:00PM', 'CHED to Tagaytay Venue 03 June 2026, 6:00AM', 'Tagaytay Venue to CHED 05 June 2026, 10:00AM', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
 
   const rows = isCheckins
-    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
+    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.sexAtBirth, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
     : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.accommodationCheckInDate, row.accommodationCheckOutDate, row.transportationFromChedToTagaytay, row.transportationFromChedToTagaytayJune3, row.transportationFromTagaytayToChed, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
 
   const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n')
@@ -226,6 +298,8 @@ function logoutAdmin() {
   checkins.value = []
   admin.search = ''
   activeView.value = 'registrations'
+  pagination.registrations.page = 1
+  pagination.checkins.page = 1
   if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_TOKEN_STORAGE)
   resetAdminMessages()
 }
@@ -328,6 +402,18 @@ onMounted(() => {
       <div v-if="adminSuccess" class="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ adminSuccess }}</div>
 
       <div v-if="activeView === 'registrations'" class="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white">
+        <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-slate-600">{{ visibleRangeLabel(filteredResponses, pagination.registrations) }} registrations</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="text-xs font-bold uppercase tracking-wide text-slate-500" for="registrations-page-size">Rows per page</label>
+            <select id="registrations-page-size" v-model="pagination.registrations.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-900">
+              <option v-for="option in PAGE_SIZE_OPTIONS" :key="`registrations-${option.value}`" :value="option.value">{{ option.label }}</option>
+            </select>
+            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.registrations.page <= 1 || pagination.registrations.pageSize === 'all'" @click="previousPage(pagination.registrations)">Prev</button>
+            <span class="text-xs font-semibold text-slate-500">Page {{ pagination.registrations.page }} of {{ registrationPageCount }}</span>
+            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.registrations.page >= registrationPageCount || pagination.registrations.pageSize === 'all'" @click="nextPage(pagination.registrations, registrationPageCount)">Next</button>
+          </div>
+        </div>
         <div class="w-full overflow-x-auto">
           <table class="w-full min-w-[1650px] table-fixed divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
@@ -353,7 +439,7 @@ onMounted(() => {
                 <td colspan="10" class="px-4 py-10 text-center text-slate-500">No registrations found.</td>
               </tr>
 
-              <tr v-for="row in filteredResponses" :key="row.registrationCode" class="align-top">
+              <tr v-for="row in paginatedResponses" :key="row.registrationCode" class="align-top">
                 <td class="px-3 py-4 text-slate-600 break-words">{{ row.timestamp }}</td>
                 <td class="px-3 py-4 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
                 <td class="px-3 py-4 text-slate-700">
@@ -414,12 +500,21 @@ onMounted(() => {
       </div>
 
       <div v-else class="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white">
-        <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h3 class="text-lg font-bold text-slate-900">Check-ins Table</h3>
-            <p class="mt-1 text-sm text-slate-600">Latest {{ checkins.length }} successful check-ins from the Checkins sheet.</p>
+            <p class="mt-1 text-sm text-slate-600">{{ visibleRangeLabel(filteredCheckins, pagination.checkins) }} check-ins from the Checkins sheet.</p>
           </div>
-          <button class="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900" @click="loadCheckins">{{ loadingCheckins ? 'Loading…' : 'Refresh Check-ins' }}</button>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="text-xs font-bold uppercase tracking-wide text-slate-500" for="checkins-page-size">Rows per page</label>
+            <select id="checkins-page-size" v-model="pagination.checkins.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-900">
+              <option v-for="option in PAGE_SIZE_OPTIONS" :key="`checkins-${option.value}`" :value="option.value">{{ option.label }}</option>
+            </select>
+            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.checkins.page <= 1 || pagination.checkins.pageSize === 'all'" @click="previousPage(pagination.checkins)">Prev</button>
+            <span class="text-xs font-semibold text-slate-500">Page {{ pagination.checkins.page }} of {{ checkinPageCount }}</span>
+            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.checkins.page >= checkinPageCount || pagination.checkins.pageSize === 'all'" @click="nextPage(pagination.checkins, checkinPageCount)">Next</button>
+            <button class="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900" @click="loadCheckins">{{ loadingCheckins ? 'Loading…' : 'Refresh Check-ins' }}</button>
+          </div>
         </div>
         <div class="w-full overflow-x-auto">
           <table class="w-full min-w-[1200px] table-fixed divide-y divide-slate-200 text-sm">
@@ -442,7 +537,7 @@ onMounted(() => {
               <tr v-else-if="!filteredCheckins.length">
                 <td colspan="8" class="px-4 py-10 text-center text-slate-500">No check-ins found.</td>
               </tr>
-              <tr v-for="row in filteredCheckins" :key="row.checkinId || `${row.registrationCode}-${row.timestamp}`" class="align-top">
+              <tr v-for="row in paginatedCheckins" :key="row.checkinId || `${row.registrationCode}-${row.timestamp}`" class="align-top">
                 <td class="px-3 py-4 text-slate-600 break-words">{{ row.timestamp }}</td>
                 <td class="px-3 py-4 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
                 <td class="px-3 py-4 text-slate-700">
