@@ -84,7 +84,7 @@ const topicCapacityApplies = computed(() => studentSelected.value || sasParticip
 const accommodationYes = computed(() => form.accommodation === 'Yes')
 const fixedAccommodationEligible = computed(() => studentSelected.value || sasParticipantSelected.value)
 const showAccommodationDateFields = computed(() => accommodationYes.value && !fixedAccommodationEligible.value)
-const fixedAccommodationCheckInDate = '2026-06-02'
+const fixedAccommodationCheckInDate = '2026-06-03'
 const fixedAccommodationCheckOutDate = '2026-06-05'
 
 const normalizeRegionOption = (option) => {
@@ -674,7 +674,7 @@ watch(turnstileHost, () => {
               </div>
             </div>
             <p v-if="accommodationYes && fixedAccommodationEligible" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              Accommodation dates are automatically set to 02 June 2026 check-in and 05 June 2026 check-out.
+              Accommodation dates are automatically set to 03 June 2026 check-in and 05 June 2026 check-out.
             </p>
             <div v-if="transportationEligible" class="rounded-2xl border border-slate-200 bg-white p-4">
               <p class="mb-3 text-sm font-semibold text-slate-900">Will join transportation</p>

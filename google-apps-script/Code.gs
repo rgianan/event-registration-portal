@@ -286,7 +286,7 @@ function sanitizeRegistration_(payload) {
 
   if (row.accommodation === 'Yes') {
     if (HEI_PARTICIPANT_TYPES.indexOf(row.participantType) !== -1) {
-      row.accommodationCheckInDate = '2026-06-02';
+      row.accommodationCheckInDate = '2026-06-03';
       row.accommodationCheckOutDate = '2026-06-05';
     } else {
       if (!row.accommodationCheckInDate) throw new Error('Accommodation check-in date is required.');
