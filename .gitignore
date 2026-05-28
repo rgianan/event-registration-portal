@@ -4,7 +4,7 @@ dist/
 .env.*
 !.env.example
 .DS_Store
+
+# Local-only operational docs (not committed)
 README.local.md
-README.private.md
-google-apps-script/README.local.md
-google-apps-script/README.private.md
+*.local.md

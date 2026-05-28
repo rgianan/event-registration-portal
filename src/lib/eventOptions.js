@@ -55,16 +55,8 @@ export const FALLBACK_REGIONS = [
   'Region XII - SOCCSKSARGEN',
   'Region XIII - Caraga',
   'Cordillera Administrative Region (CAR)',
+  'Bangsamoro Autonomous Region in Muslim Mindanao (BARMM)',
 ]
-
-
-export const EXCLUDED_REGION_MARKERS = ['15', 'barmm', 'bangsamoro', 'muslim mindanao']
-
-export const isExcludedRegion = (value) => {
-  const text = String(value || '').trim().toLowerCase()
-  if (!text) return false
-  return EXCLUDED_REGION_MARKERS.some((marker) => text === marker || text.includes(marker))
-}
 
 export const BREAKOUT_SESSION_1_OPTIONS = [
   'Personal Well Being (Mental health, stress management, coping skills, self care, and help seeking behavior)',

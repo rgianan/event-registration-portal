@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { API_URL, postJson } from '../lib/api.js'
 
@@ -19,13 +19,6 @@ const manualCode = ref('')
 const checkInNote = ref('')
 const recentCheckins = ref([])
 const lastResult = ref(null)
-const PAGE_SIZE_OPTIONS = [
-  { label: '25', value: 25 },
-  { label: '50', value: 50 },
-  { label: '100', value: 100 },
-  { label: 'All', value: 'all' },
-]
-const recentPagination = reactive({ page: 1, pageSize: 25 })
 
 const scannerActive = ref(false)
 const scannerError = ref('')
@@ -38,45 +31,6 @@ let lastScanText = ''
 let lastScanAt = 0
 
 const canUseScanner = computed(() => typeof window !== 'undefined' && 'BarcodeDetector' in window && !!navigator?.mediaDevices?.getUserMedia)
-
-function effectivePageSize(total) {
-  return recentPagination.pageSize === 'all' ? Math.max(total, 1) : Number(recentPagination.pageSize || 25)
-}
-
-const recentPageCount = computed(() => {
-  if (recentPagination.pageSize === 'all') return 1
-  return Math.max(1, Math.ceil(recentCheckins.value.length / effectivePageSize(recentCheckins.value.length)))
-})
-
-const paginatedRecentCheckins = computed(() => {
-  if (recentPagination.pageSize === 'all') return recentCheckins.value
-  const size = effectivePageSize(recentCheckins.value.length)
-  const page = Math.min(Math.max(Number(recentPagination.page) || 1, 1), recentPageCount.value)
-  const start = (page - 1) * size
-  return recentCheckins.value.slice(start, start + size)
-})
-
-const recentRangeLabel = computed(() => {
-  const total = recentCheckins.value.length
-  if (!total) return 'Showing 0 of 0'
-  if (recentPagination.pageSize === 'all') return `Showing all ${total}`
-  const size = effectivePageSize(total)
-  const page = Math.min(Math.max(Number(recentPagination.page) || 1, 1), recentPageCount.value)
-  const start = (page - 1) * size + 1
-  const end = Math.min(start + size - 1, total)
-  return `Showing ${start}-${end} of ${total}`
-})
-
-function previousRecentPage() {
-  recentPagination.page = Math.max(1, Number(recentPagination.page || 1) - 1)
-}
-
-function nextRecentPage() {
-  recentPagination.page = Math.min(recentPageCount.value, Number(recentPagination.page || 1) + 1)
-}
-
-watch(() => recentPagination.pageSize, () => { recentPagination.page = 1 })
-watch(recentPageCount, (count) => { if (recentPagination.page > count) recentPagination.page = count })
 
 function resetMessages() {
   adminError.value = ''
@@ -97,17 +51,14 @@ async function adminLogin() {
     admin.password = ''
     if (typeof sessionStorage !== 'undefined' && sessionToken.value) sessionStorage.setItem(ADMIN_TOKEN_STORAGE, sessionToken.value)
     adminSuccess.value = data.message || 'Admin access granted.'
+    await loadRecentCheckins()
   } catch (error) {
     adminError.value = error?.message || 'Admin login failed.'
     isAdmin.value = false
     sessionToken.value = ''
+  } finally {
     loggingIn.value = false
-    return
   }
-  // Auth succeeded — drop the login spinner now and load recent check-ins
-  // separately so the station is usable immediately.
-  loggingIn.value = false
-  loadRecentCheckins()
 }
 
 function logoutAdmin() {
@@ -119,7 +70,6 @@ function logoutAdmin() {
   manualCode.value = ''
   lastResult.value = null
   recentCheckins.value = []
-  recentPagination.page = 1
   if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_TOKEN_STORAGE)
   resetMessages()
 }
@@ -140,9 +90,9 @@ async function restoreSession() {
 async function loadRecentCheckins() {
   if (!isAdmin.value) return
   loadingRecent.value = true
-  adminError.value = ''
+  resetMessages()
   try {
-    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 'all' })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 30 })
     recentCheckins.value = Array.isArray(data.rows) ? data.rows : []
   } catch (error) {
     adminError.value = error?.message || 'Failed to load recent check-ins.'
@@ -153,33 +103,6 @@ async function loadRecentCheckins() {
 
 function compactCode(value) {
   return String(value || '').trim().replace(/\s+/g, '').toUpperCase()
-}
-
-// Prepend the just-recorded check-in locally so the station doesn't re-fetch the
-// entire check-in log after every scan (that fetch grows unbounded as the event
-// fills up). The list reconciles with the sheet on manual Refresh / next login;
-// checkinId is a temporary local key until then.
-function prependRecentCheckin(participant) {
-  if (!participant) return
-  const code = participant.registrationCode || ''
-  const row = {
-    timestamp: participant.checkInAt || new Date().toLocaleString(),
-    checkinId: `local-${code}-${Date.now()}`,
-    registrationCode: code,
-    email: participant.email || '',
-    fullName: participant.fullName || '',
-    region: participant.region || '',
-    sexAtBirth: participant.sexAtBirth || '',
-    hei: participant.hei || participant.affiliation || '',
-    affiliation: participant.affiliation || participant.hei || '',
-    participantType: participant.participantType || '',
-    status: participant.checkInStatus || 'CHECKED_IN',
-    method: participant.checkInMethod || '',
-    checkedInBy: participant.checkInBy || '',
-    note: participant.checkInNote || '',
-  }
-  recentCheckins.value = [row, ...recentCheckins.value]
-  recentPagination.page = 1
 }
 
 async function submitManualCheckIn() {
@@ -211,9 +134,9 @@ async function checkInParticipant(qrText, method = 'CAMERA') {
     } else {
       adminSuccess.value = data.message || 'Participant checked in.'
       scannerStatus.value = 'Check-in recorded. Ready for next QR.'
-      prependRecentCheckin(data.participant)
     }
     manualCode.value = ''
+    await loadRecentCheckins()
   } catch (error) {
     adminError.value = error?.message || 'Check-in failed.'
     scannerStatus.value = 'Check-in failed. Ready for another scan.'
@@ -390,27 +313,16 @@ onBeforeUnmount(() => stopScanner())
         </div>
 
         <div class="rounded-[1.5rem] border border-slate-200 bg-white p-4 sm:p-5">
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <h2 class="text-xl font-bold text-slate-900">Recent check-ins</h2>
-                <p class="mt-1 text-sm text-slate-600">{{ recentRangeLabel }} successful onsite check-ins.</p>
-              </div>
-              <button class="rounded-2xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900" @click="loadRecentCheckins">{{ loadingRecent ? 'Loading…' : 'Refresh' }}</button>
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h2 class="text-xl font-bold text-slate-900">Recent check-ins</h2>
+              <p class="mt-1 text-sm text-slate-600">Latest successful onsite check-ins.</p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <label class="text-xs font-bold uppercase tracking-wide text-slate-500" for="recent-checkins-page-size">Rows per page</label>
-              <select id="recent-checkins-page-size" v-model="recentPagination.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-900">
-                <option v-for="option in PAGE_SIZE_OPTIONS" :key="`recent-checkins-${option.value}`" :value="option.value">{{ option.label }}</option>
-              </select>
-              <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="recentPagination.page <= 1 || recentPagination.pageSize === 'all'" @click="previousRecentPage">Prev</button>
-              <span class="text-xs font-semibold text-slate-500">Page {{ recentPagination.page }} of {{ recentPageCount }}</span>
-              <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="recentPagination.page >= recentPageCount || recentPagination.pageSize === 'all'" @click="nextRecentPage">Next</button>
-            </div>
+            <button class="rounded-2xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900" @click="loadRecentCheckins">{{ loadingRecent ? 'Loading…' : 'Refresh' }}</button>
           </div>
           <div v-if="!recentCheckins.length" class="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No check-ins yet.</div>
           <div v-else class="mt-4 max-h-[460px] space-y-3 overflow-auto pr-1">
-            <div v-for="row in paginatedRecentCheckins" :key="row.checkinId" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div v-for="row in recentCheckins" :key="row.checkinId" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <p class="text-sm font-bold text-slate-950">{{ row.fullName }}</p>
               <p class="mt-1 font-mono text-xs font-semibold text-slate-600">{{ row.registrationCode }}</p>
               <p class="mt-2 text-xs text-slate-500">{{ row.timestamp }} · {{ row.method }}</p>

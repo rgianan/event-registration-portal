@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { API_URL, postJson } from '../lib/api.js'
 
 const loadingResponses = ref(false)
 const loadingCheckins = ref(false)
 const savingNoteId = ref('')
 const resendingId = ref('')
+const cancellingId = ref('')
 const adminError = ref('')
 const adminSuccess = ref('')
 const isAdmin = ref(false)
@@ -14,16 +15,6 @@ const responses = ref([])
 const checkins = ref([])
 const lastLoadedAt = ref('')
 const activeView = ref('registrations')
-const PAGE_SIZE_OPTIONS = [
-  { label: '25', value: 25 },
-  { label: '50', value: 50 },
-  { label: '100', value: 100 },
-  { label: 'All', value: 'all' },
-]
-const pagination = reactive({
-  registrations: { page: 1, pageSize: 25 },
-  checkins: { page: 1, pageSize: 25 },
-})
 
 const ADMIN_TOKEN_STORAGE = 'eventRegistrationAdminToken'
 
@@ -33,116 +24,91 @@ const restoringSession = ref(false)
 const admin = reactive({ email: '', password: '', search: '' })
 const stats = ref({ total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedco: 0, resource: 0, other: 0 })
 
+// Per-table filter + sort state. Separate refs for registrations vs. check-ins so
+// switching tabs preserves each view's selection.
+const regFilters = reactive({ sex: '', region: '', participantType: '' })
+const ciFilters = reactive({ sex: '', region: '', participantType: '' })
+const regSort = reactive({ key: 'timestamp', dir: 'desc' })
+const ciSort = reactive({ key: 'timestamp', dir: 'desc' })
+
+// Build distinct option lists from the loaded rows so the dropdowns reflect what
+// the admin can actually filter by.
+function uniqueSortedValues(rows, accessor) {
+  const set = new Set()
+  for (const row of rows) {
+    const v = accessor(row)
+    if (v) set.add(String(v).trim())
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b))
+}
+const regSexOptions = computed(() => uniqueSortedValues(responses.value, (r) => r.sexAtBirth))
+const regRegionOptions = computed(() => uniqueSortedValues(responses.value, (r) => r.region))
+const regTypeOptions = computed(() => uniqueSortedValues(responses.value, (r) => r.participantType))
+const ciSexOptions = computed(() => uniqueSortedValues(checkins.value, (r) => r.sexAtBirth))
+const ciRegionOptions = computed(() => uniqueSortedValues(checkins.value, (r) => r.region))
+const ciTypeOptions = computed(() => uniqueSortedValues(checkins.value, (r) => r.participantType))
+
+function applySort(list, key, dir) {
+  if (!key) return list
+  const mul = dir === 'asc' ? 1 : -1
+  return list.slice().sort((a, b) => {
+    const av = a?.[key] ?? ''
+    const bv = b?.[key] ?? ''
+    // Numeric-aware string compare handles timestamps, codes, and names well.
+    return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * mul
+  })
+}
+function toggleSort(target, key) {
+  if (target.key === key) target.dir = target.dir === 'asc' ? 'desc' : 'asc'
+  else { target.key = key; target.dir = 'asc' }
+}
+function sortIndicator(target, key) {
+  if (target.key !== key) return ''
+  return target.dir === 'asc' ? '▲' : '▼'
+}
+
 const filteredResponses = computed(() => {
   const q = admin.search.trim().toLowerCase()
-  if (!q) return responses.value
-  return responses.value.filter((row) =>
-    [
-      row.timestamp,
-      row.registrationCode,
-      row.status,
-      row.fullName,
-      row.email,
-      row.region,
-      row.affiliation || row.hei,
-      row.contactNumber,
-      row.foodRestrictions,
-      row.emergencyContact,
-      row.accommodation,
-      row.accommodationCheckInDate,
-      row.accommodationCheckOutDate,
-      row.transportationFromChedToTagaytay,
-      row.transportationFromChedToTagaytayJune3,
-      row.transportationFromTagaytayToChed,
-      row.participantType,
-      row.currentDesignation,
-      row.breakoutSession1,
-      row.breakoutSession4,
-      row.checkInStatus,
-      row.checkInAt,
-      row.checkInMethod,
-      row.reviewNote,
-    ]
-      .filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(q)),
-  )
+  const fSex = regFilters.sex
+  const fRegion = regFilters.region
+  const fType = regFilters.participantType
+  const matches = responses.value.filter((row) => {
+    if (fSex && String(row.sexAtBirth || '').trim() !== fSex) return false
+    if (fRegion && String(row.region || '').trim() !== fRegion) return false
+    if (fType && String(row.participantType || '').trim() !== fType) return false
+    if (!q) return true
+    return [
+      row.timestamp, row.registrationCode, row.status, row.fullName, row.email,
+      row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions,
+      row.emergencyContact, row.accommodation, row.accommodationCheckInDate,
+      row.accommodationCheckOutDate, row.transportationFromChedToTagaytay,
+      row.transportationFromChedToTagaytayJune3, row.transportationFromTagaytayToChed,
+      row.participantType, row.currentDesignation, row.breakoutSession1,
+      row.breakoutSession4, row.checkInStatus, row.checkInAt, row.checkInMethod,
+      row.reviewNote, row.sexAtBirth,
+    ].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
+  })
+  return applySort(matches, regSort.key, regSort.dir)
 })
 
 const filteredCheckins = computed(() => {
   const q = admin.search.trim().toLowerCase()
-  if (!q) return checkins.value
-  return checkins.value.filter((row) =>
-    [
-      row.timestamp,
-      row.checkinId,
-      row.registrationCode,
-      row.email,
-      row.fullName,
-      row.region,
-      row.sexAtBirth,
-      row.affiliation || row.hei,
-      row.participantType,
-      row.status,
-      row.method,
-      row.checkedInBy,
-      row.note,
-    ]
-      .filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(q)),
-  )
+  const fSex = ciFilters.sex
+  const fRegion = ciFilters.region
+  const fType = ciFilters.participantType
+  const matches = checkins.value.filter((row) => {
+    if (fSex && String(row.sexAtBirth || '').trim() !== fSex) return false
+    if (fRegion && String(row.region || '').trim() !== fRegion) return false
+    if (fType && String(row.participantType || '').trim() !== fType) return false
+    if (!q) return true
+    return [
+      row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName,
+      row.region, row.affiliation || row.hei, row.participantType, row.status,
+      row.method, row.checkedInBy, row.note, row.sexAtBirth,
+    ].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))
+  })
+  return applySort(matches, ciSort.key, ciSort.dir)
 })
-
-function effectivePageSize(pager, total) {
-  return pager.pageSize === 'all' ? Math.max(total, 1) : Number(pager.pageSize || 25)
-}
-
-function pageCountFor(rows, pager) {
-  if (pager.pageSize === 'all') return 1
-  return Math.max(1, Math.ceil(rows.length / effectivePageSize(pager, rows.length)))
-}
-
-function paginatedRows(rows, pager) {
-  if (pager.pageSize === 'all') return rows
-  const size = effectivePageSize(pager, rows.length)
-  const maxPage = pageCountFor(rows, pager)
-  const currentPage = Math.min(Math.max(Number(pager.page) || 1, 1), maxPage)
-  const start = (currentPage - 1) * size
-  return rows.slice(start, start + size)
-}
-
-const registrationPageCount = computed(() => pageCountFor(filteredResponses.value, pagination.registrations))
-const checkinPageCount = computed(() => pageCountFor(filteredCheckins.value, pagination.checkins))
-const paginatedResponses = computed(() => paginatedRows(filteredResponses.value, pagination.registrations))
-const paginatedCheckins = computed(() => paginatedRows(filteredCheckins.value, pagination.checkins))
-
-function visibleRangeLabel(rows, pager) {
-  const total = rows.length
-  if (!total) return 'Showing 0 of 0'
-  if (pager.pageSize === 'all') return `Showing all ${total}`
-  const size = effectivePageSize(pager, total)
-  const page = Math.min(Math.max(Number(pager.page) || 1, 1), pageCountFor(rows, pager))
-  const start = (page - 1) * size + 1
-  const end = Math.min(start + size - 1, total)
-  return `Showing ${start}-${end} of ${total}`
-}
-
-function previousPage(pager) {
-  pager.page = Math.max(1, Number(pager.page || 1) - 1)
-}
-
-function nextPage(pager, pageCount) {
-  pager.page = Math.min(pageCount, Number(pager.page || 1) + 1)
-}
-
-watch(() => admin.search, () => {
-  pagination.registrations.page = 1
-  pagination.checkins.page = 1
-})
-
-watch(() => pagination.registrations.pageSize, () => { pagination.registrations.page = 1 })
-watch(() => pagination.checkins.pageSize, () => { pagination.checkins.page = 1 })
-watch(registrationPageCount, (count) => { if (pagination.registrations.page > count) pagination.registrations.page = count })
-watch(checkinPageCount, (count) => { if (pagination.checkins.page > count) pagination.checkins.page = count })
 
 function resetAdminMessages() {
   adminError.value = ''
@@ -163,28 +129,20 @@ async function adminLogin() {
     admin.password = '' // never keep the password in memory after login
     if (typeof sessionStorage !== 'undefined' && sessionToken.value) sessionStorage.setItem(ADMIN_TOKEN_STORAGE, sessionToken.value)
     adminSuccess.value = data.message || 'Admin access granted.'
+    await loadResponses()
   } catch (error) {
     adminError.value = error?.message || 'Admin login failed.'
     isAdmin.value = false
     sessionToken.value = ''
+  } finally {
     loggingIn.value = false
-    return
   }
-  // Auth succeeded — drop the login spinner now and load the table separately so
-  // the dashboard renders immediately instead of waiting on a full-sheet scan.
-  loggingIn.value = false
-  const role = String(currentUser.value.role || '').toLowerCase()
-  if (role && role !== 'admin') {
-    adminError.value = 'This account is for check-in only. Open the Check-in page (/checkin) instead.'
-    return
-  }
-  loadResponses()
 }
 
 async function loadResponses() {
   if (!isAdmin.value) return
   loadingResponses.value = true
-  adminError.value = ''
+  resetAdminMessages()
   try {
     const data = await postJson({ action: 'listResponses', sessionToken: sessionToken.value })
     responses.value = Array.isArray(data.rows) ? data.rows : []
@@ -200,9 +158,9 @@ async function loadResponses() {
 async function loadCheckins() {
   if (!isAdmin.value) return
   loadingCheckins.value = true
-  adminError.value = ''
+  resetAdminMessages()
   try {
-    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 'all' })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 200 })
     checkins.value = Array.isArray(data.rows) ? data.rows : []
     lastLoadedAt.value = new Date().toLocaleString()
   } catch (error) {
@@ -214,7 +172,6 @@ async function loadCheckins() {
 
 async function switchView(view) {
   activeView.value = view
-  pagination[view].page = 1
   if (view === 'registrations' && !responses.value.length) await loadResponses()
   if (view === 'checkins' && !checkins.value.length) await loadCheckins()
 }
@@ -260,6 +217,44 @@ async function resendConfirmation(row) {
   }
 }
 
+// Workflow: the admin types the cancellation reason into the internal review note
+// for the row, then clicks Cancel. The note text becomes both the audit reason
+// (persisted to the sheet) AND the body of the cancellation email to the
+// participant. Already-cancelled rows are blocked by the backend.
+async function cancelConfirmation(row) {
+  if (!row?.registrationCode || cancellingId.value) return
+  const reason = String(row.reviewNote || '').trim()
+  if (!reason) {
+    adminError.value = 'Add the cancellation reason in the internal note for this row, then click Cancel confirmation.'
+    return
+  }
+  if (String(row.status || '').toLowerCase() === 'cancelled') {
+    adminError.value = 'This registration is already cancelled.'
+    return
+  }
+  if (typeof window !== 'undefined' && !window.confirm(
+    'Cancel this registration and email the participant?\n\n' +
+    'Reason (from the internal note):\n' + reason
+  )) return
+  cancellingId.value = row.registrationCode
+  resetAdminMessages()
+  try {
+    const data = await postJson({
+      action: 'cancelConfirmation',
+      sessionToken: sessionToken.value,
+      registrationCode: row.registrationCode,
+      reason,
+    })
+    row.status = data.status || 'Cancelled'
+    row.reviewNote = reason
+    adminSuccess.value = data.message || 'Registration cancelled.'
+  } catch (error) {
+    adminError.value = error?.message || 'Failed to cancel registration.'
+  } finally {
+    cancellingId.value = ''
+  }
+}
+
 function csvEscape(value) {
   let str = String(value ?? '')
   // Neutralize spreadsheet formula injection: a cell that starts with =, +, -, @,
@@ -272,11 +267,11 @@ function csvEscape(value) {
 function exportCsvClient() {
   const isCheckins = activeView.value === 'checkins'
   const header = isCheckins
-    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Assigned Sex at Birth', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
+    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
     : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'CHED to Tagaytay Venue 02 June 2026, 2:00PM', 'CHED to Tagaytay Venue 03 June 2026, 6:00AM', 'Tagaytay Venue to CHED 05 June 2026, 10:00AM', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
 
   const rows = isCheckins
-    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.sexAtBirth, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
+    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
     : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.accommodationCheckInDate, row.accommodationCheckOutDate, row.transportationFromChedToTagaytay, row.transportationFromChedToTagaytayJune3, row.transportationFromTagaytayToChed, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
 
   const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n')
@@ -298,8 +293,6 @@ function logoutAdmin() {
   checkins.value = []
   admin.search = ''
   activeView.value = 'registrations'
-  pagination.registrations.page = 1
-  pagination.checkins.page = 1
   if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ADMIN_TOKEN_STORAGE)
   resetAdminMessages()
 }
@@ -386,48 +379,73 @@ onMounted(() => {
         <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4"><p class="text-xs uppercase tracking-wide text-orange-700">Resource</p><p class="mt-2 text-3xl font-bold text-orange-950">{{ stats.resource }}</p></div>
       </div>
 
-      <div class="mb-4 flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3 lg:flex-row lg:items-center lg:justify-between">
-        <div class="grid grid-cols-2 gap-2 sm:flex">
-          <button class="rounded-2xl px-4 py-2 text-sm font-bold transition" :class="activeView === 'registrations' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'" @click="switchView('registrations')">
-            Registrations
-          </button>
-          <button class="rounded-2xl px-4 py-2 text-sm font-bold transition" :class="activeView === 'checkins' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'" @click="switchView('checkins')">
-            Check-ins
-          </button>
+      <div class="mb-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div class="grid grid-cols-2 gap-2 sm:flex">
+            <button class="rounded-2xl px-4 py-2 text-sm font-bold transition" :class="activeView === 'registrations' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'" @click="switchView('registrations')">
+              Registrations
+            </button>
+            <button class="rounded-2xl px-4 py-2 text-sm font-bold transition" :class="activeView === 'checkins' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'" @click="switchView('checkins')">
+              Check-ins
+            </button>
+          </div>
+          <input v-model="admin.search" type="search" :placeholder="activeView === 'checkins' ? 'Search check-ins by code, name, email, method, note' : 'Search registrations by code, name, email, region, affiliation, session, food restriction'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 outline-none transition focus:border-slate-900 lg:max-w-xl" />
         </div>
-        <input v-model="admin.search" type="search" :placeholder="activeView === 'checkins' ? 'Search check-ins by code, name, email, method, note' : 'Search registrations by code, name, email, region, affiliation, session, food restriction'" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900 lg:max-w-xl" />
+        <!-- Filters: independent state per view so switching tabs preserves each one's selection -->
+        <div v-if="activeView === 'registrations'" class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-semibold uppercase tracking-wide text-slate-500">Filter:</span>
+          <select v-model="regFilters.sex" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <option value="">All sex</option>
+            <option v-for="opt in regSexOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <select v-model="regFilters.region" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <option value="">All regions</option>
+            <option v-for="opt in regRegionOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <select v-model="regFilters.participantType" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <option value="">All participant types</option>
+            <option v-for="opt in regTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <button v-if="regFilters.sex || regFilters.region || regFilters.participantType" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-900" @click="regFilters.sex = regFilters.region = regFilters.participantType = ''">Clear filters</button>
+          <span class="ml-auto text-slate-500">Showing {{ filteredResponses.length }} of {{ responses.length }}</span>
+        </div>
+        <div v-else class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span class="font-semibold uppercase tracking-wide text-slate-500">Filter:</span>
+          <select v-model="ciFilters.sex" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <option value="">All sex</option>
+            <option v-for="opt in ciSexOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <select v-model="ciFilters.region" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <option value="">All regions</option>
+            <option v-for="opt in ciRegionOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <select v-model="ciFilters.participantType" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <option value="">All participant types</option>
+            <option v-for="opt in ciTypeOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <button v-if="ciFilters.sex || ciFilters.region || ciFilters.participantType" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-900" @click="ciFilters.sex = ciFilters.region = ciFilters.participantType = ''">Clear filters</button>
+          <span class="ml-auto text-slate-500">Showing {{ filteredCheckins.length }} of {{ checkins.length }}</span>
+        </div>
       </div>
 
       <div v-if="adminError" class="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ adminError }}</div>
       <div v-if="adminSuccess" class="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ adminSuccess }}</div>
 
       <div v-if="activeView === 'registrations'" class="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white">
-        <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-sm text-slate-600">{{ visibleRangeLabel(filteredResponses, pagination.registrations) }} registrations</p>
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="text-xs font-bold uppercase tracking-wide text-slate-500" for="registrations-page-size">Rows per page</label>
-            <select id="registrations-page-size" v-model="pagination.registrations.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-900">
-              <option v-for="option in PAGE_SIZE_OPTIONS" :key="`registrations-${option.value}`" :value="option.value">{{ option.label }}</option>
-            </select>
-            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.registrations.page <= 1 || pagination.registrations.pageSize === 'all'" @click="previousPage(pagination.registrations)">Prev</button>
-            <span class="text-xs font-semibold text-slate-500">Page {{ pagination.registrations.page }} of {{ registrationPageCount }}</span>
-            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.registrations.page >= registrationPageCount || pagination.registrations.pageSize === 'all'" @click="nextPage(pagination.registrations, registrationPageCount)">Next</button>
-          </div>
-        </div>
         <div class="w-full overflow-x-auto">
-          <table class="w-full min-w-[1650px] table-fixed divide-y divide-slate-200 text-sm">
+          <table class="w-full min-w-[1780px] table-fixed divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
-                <th class="w-[140px] px-3 py-3">Timestamp</th>
-                <th class="w-[140px] px-3 py-3">Code</th>
-                <th class="w-[230px] px-3 py-3">Participant</th>
-                <th class="w-[260px] px-3 py-3">Region / Affiliation</th>
-                <th class="w-[230px] px-3 py-3">Logistics</th>
-                <th class="w-[300px] px-3 py-3">Topics Interested to Join</th>
-                <th class="w-[210px] px-3 py-3">Email / QR</th>
-                <th class="w-[190px] px-3 py-3">Check-in</th>
-                <th class="w-[240px] px-3 py-3">Review Note</th>
-                <th class="w-[130px] px-3 py-3">Actions</th>
+                <th class="w-[120px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(regSort, 'timestamp')">Timestamp {{ sortIndicator(regSort, 'timestamp') }}</button></th>
+                <th class="w-[110px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(regSort, 'registrationCode')">Code {{ sortIndicator(regSort, 'registrationCode') }}</button></th>
+                <th class="w-[220px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(regSort, 'fullName')">Participant {{ sortIndicator(regSort, 'fullName') }}</button></th>
+                <th class="w-[210px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(regSort, 'region')">Region / Affiliation {{ sortIndicator(regSort, 'region') }}</button></th>
+                <th class="w-[190px] px-2 py-3">Logistics</th>
+                <th class="w-[210px] px-2 py-3">Topics</th>
+                <th class="w-[170px] px-2 py-3">Email / QR</th>
+                <th class="w-[160px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(regSort, 'checkInStatus')">Check-in {{ sortIndicator(regSort, 'checkInStatus') }}</button></th>
+                <th class="w-[220px] px-2 py-3">Review Note / Cancellation reason</th>
+                <th class="w-[170px] px-2 py-3">Actions</th>
               </tr>
             </thead>
 
@@ -436,60 +454,63 @@ onMounted(() => {
                 <td colspan="10" class="px-4 py-10 text-center text-slate-500">Loading registrations…</td>
               </tr>
               <tr v-else-if="!filteredResponses.length">
-                <td colspan="10" class="px-4 py-10 text-center text-slate-500">No registrations found.</td>
+                <td colspan="10" class="px-4 py-10 text-center text-slate-500">No registrations match the current filters.</td>
               </tr>
 
-              <tr v-for="row in paginatedResponses" :key="row.registrationCode" class="align-top">
-                <td class="px-3 py-4 text-slate-600 break-words">{{ row.timestamp }}</td>
-                <td class="px-3 py-4 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
-                <td class="px-3 py-4 text-slate-700">
+              <tr v-for="row in filteredResponses" :key="row.registrationCode" class="align-top" :class="String(row.status || '').toLowerCase() === 'cancelled' ? 'bg-rose-50/40' : ''">
+                <td class="px-2 py-3 text-slate-600 break-words">{{ row.timestamp }}</td>
+                <td class="px-2 py-3 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
+                <td class="px-2 py-3 text-slate-700">
                   <p class="font-semibold text-slate-900 break-words">{{ row.fullName }}</p>
                   <p class="text-xs text-slate-500 break-all">{{ row.email }}</p>
-                  <p class="mt-2 text-xs text-slate-500">Nickname: {{ row.nickName || '—' }}</p>
-                  <p class="text-xs text-slate-500">Sex: {{ row.sexAtBirth || '—' }}</p>
+                  <p class="mt-1 text-xs text-slate-500">Sex: {{ row.sexAtBirth || '—' }} · Nick: {{ row.nickName || '—' }}</p>
                   <p class="text-xs text-slate-500">Contact: {{ row.contactNumber || '—' }}</p>
-                  <p class="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">{{ row.participantType }}</p>
+                  <p class="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{{ row.participantType }}</p>
+                  <p v-if="String(row.status || '').toLowerCase() === 'cancelled'" class="mt-1 inline-flex rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold uppercase text-rose-800">Cancelled</p>
                   <p v-if="row.currentDesignation" class="mt-1 text-xs text-slate-500">{{ row.currentDesignation }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">
+                <td class="px-2 py-3 text-slate-700 break-words">
                   <p class="font-medium text-slate-900">{{ row.region }}</p>
                   <p class="mt-1">{{ row.affiliation || row.hei }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">
+                <td class="px-2 py-3 text-slate-700 break-words text-xs">
                   <p><span class="font-semibold">Food:</span> {{ row.foodRestrictions || '—' }}</p>
-                  <p class="mt-2"><span class="font-semibold">Accommodation:</span> {{ row.accommodation || '—' }}</p>
-                  <p v-if="row.accommodation === 'Yes'" class="mt-1 text-xs text-slate-500">{{ row.accommodationCheckInDate || '—' }} to {{ row.accommodationCheckOutDate || '—' }}</p>
-                  <p v-if="row.transportationFromChedToTagaytay === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">CHED to Tagaytay Venue 02 June 2026, 2:00PM:</span> YES</p>
-                  <p v-if="row.transportationFromChedToTagaytayJune3 === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">CHED to Tagaytay Venue 03 June 2026, 6:00AM:</span> YES</p>
-                  <p v-if="row.transportationFromTagaytayToChed === 'YES'" class="mt-1 text-xs text-slate-500"><span class="font-semibold">Tagaytay Venue to CHED 05 June 2026, 10:00AM:</span> YES</p>
-                  <p class="mt-2"><span class="font-semibold">Emergency:</span> {{ row.emergencyContact || '—' }}</p>
+                  <p class="mt-1"><span class="font-semibold">Accommodation:</span> {{ row.accommodation || '—' }}</p>
+                  <p v-if="row.accommodation === 'Yes'" class="text-slate-500">{{ row.accommodationCheckInDate || '—' }} → {{ row.accommodationCheckOutDate || '—' }}</p>
+                  <p v-if="row.transportationFromChedToTagaytay === 'YES'" class="text-slate-500">CHED→Tagaytay 06/02 2PM</p>
+                  <p v-if="row.transportationFromChedToTagaytayJune3 === 'YES'" class="text-slate-500">CHED→Tagaytay 06/03 6AM</p>
+                  <p v-if="row.transportationFromTagaytayToChed === 'YES'" class="text-slate-500">Tagaytay→CHED 06/05 10AM</p>
+                  <p class="mt-1"><span class="font-semibold">Emergency:</span> {{ row.emergencyContact || '—' }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">
-                  <p><span class="font-semibold">Topic 1:</span> {{ row.breakoutSession1 }}</p>
-                  <p class="mt-3"><span class="font-semibold">Topic 4:</span> {{ row.breakoutSession4 }}</p>
+                <td class="px-2 py-3 text-slate-700 break-words text-xs">
+                  <p><span class="font-semibold">Topic 1:</span> {{ row.breakoutSession1 || '—' }}</p>
+                  <p class="mt-2"><span class="font-semibold">Topic 4:</span> {{ row.breakoutSession4 || '—' }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">
-                  <p>Email sent: <span class="font-semibold">{{ row.emailSent || '—' }}</span></p>
-                  <p v-if="row.emailError" class="mt-1 text-xs text-rose-600">{{ row.emailError }}</p>
-                  <a v-if="row.qrImageUrl" :href="row.qrImageUrl" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex text-xs font-semibold text-slate-900 underline">Open QR</a>
+                <td class="px-2 py-3 text-slate-700 break-words text-xs">
+                  <p>Sent: <span class="font-semibold">{{ row.emailSent || '—' }}</span></p>
+                  <p v-if="row.emailError" class="mt-1 text-rose-600">{{ row.emailError }}</p>
+                  <a v-if="row.qrImageUrl" :href="row.qrImageUrl" target="_blank" rel="noopener noreferrer" class="mt-1 inline-flex font-semibold text-slate-900 underline">Open QR</a>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">
-                  <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-bold" :class="row.checkInStatus === 'CHECKED_IN' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'">
+                <td class="px-2 py-3 text-slate-700 break-words">
+                  <span class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold" :class="row.checkInStatus === 'CHECKED_IN' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'">
                     {{ row.checkInStatus || 'NOT_CHECKED_IN' }}
                   </span>
-                  <p v-if="row.checkInAt" class="mt-2 text-xs text-slate-600">{{ row.checkInAt }}</p>
-                  <p v-if="row.checkInMethod" class="mt-1 text-xs text-slate-500">{{ row.checkInMethod }}</p>
+                  <p v-if="row.checkInAt" class="mt-1 text-xs text-slate-600">{{ row.checkInAt }}</p>
+                  <p v-if="row.checkInMethod" class="text-xs text-slate-500">{{ row.checkInMethod }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700">
-                  <textarea v-model="row.reviewNote" rows="4" placeholder="Internal note" class="min-h-[96px] w-full min-w-[200px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-900"></textarea>
+                <td class="px-2 py-3 text-slate-700">
+                  <textarea v-model="row.reviewNote" rows="4" placeholder="Internal note — type the cancellation reason here before clicking Cancel confirmation" class="min-h-[88px] w-full rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none transition focus:border-slate-900"></textarea>
                 </td>
-                <td class="px-3 py-4">
-                  <div class="flex flex-col gap-2">
-                    <button class="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingNoteId === row.registrationCode" @click="saveReviewNote(row)">
+                <td class="px-2 py-3">
+                  <div class="flex flex-col gap-1.5">
+                    <button class="w-full rounded-xl border border-slate-300 px-2 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingNoteId === row.registrationCode" @click="saveReviewNote(row)">
                       {{ savingNoteId === row.registrationCode ? 'Saving…' : 'Save note' }}
                     </button>
-                    <button class="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="resendingId === row.registrationCode" @click="resendConfirmation(row)">
+                    <button class="w-full rounded-xl border border-slate-300 px-2 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="resendingId === row.registrationCode || String(row.status || '').toLowerCase() === 'cancelled'" @click="resendConfirmation(row)">
                       {{ resendingId === row.registrationCode ? 'Sending…' : 'Resend QR' }}
+                    </button>
+                    <button class="w-full rounded-xl border border-rose-300 px-2 py-1.5 text-xs font-semibold text-rose-700 transition hover:border-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50" :disabled="cancellingId === row.registrationCode || String(row.status || '').toLowerCase() === 'cancelled'" @click="cancelConfirmation(row)">
+                      {{ cancellingId === row.registrationCode ? 'Cancelling…' : (String(row.status || '').toLowerCase() === 'cancelled' ? 'Cancelled' : 'Cancel confirmation') }}
                     </button>
                   </div>
                 </td>
@@ -500,34 +521,25 @@ onMounted(() => {
       </div>
 
       <div v-else class="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white">
-        <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 xl:flex-row xl:items-center xl:justify-between">
+        <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 class="text-lg font-bold text-slate-900">Check-ins Table</h3>
-            <p class="mt-1 text-sm text-slate-600">{{ visibleRangeLabel(filteredCheckins, pagination.checkins) }} check-ins from the Checkins sheet.</p>
+            <p class="mt-1 text-sm text-slate-600">Latest {{ checkins.length }} successful check-ins from the Checkins sheet.</p>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="text-xs font-bold uppercase tracking-wide text-slate-500" for="checkins-page-size">Rows per page</label>
-            <select id="checkins-page-size" v-model="pagination.checkins.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-900">
-              <option v-for="option in PAGE_SIZE_OPTIONS" :key="`checkins-${option.value}`" :value="option.value">{{ option.label }}</option>
-            </select>
-            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.checkins.page <= 1 || pagination.checkins.pageSize === 'all'" @click="previousPage(pagination.checkins)">Prev</button>
-            <span class="text-xs font-semibold text-slate-500">Page {{ pagination.checkins.page }} of {{ checkinPageCount }}</span>
-            <button class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="pagination.checkins.page >= checkinPageCount || pagination.checkins.pageSize === 'all'" @click="nextPage(pagination.checkins, checkinPageCount)">Next</button>
-            <button class="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900" @click="loadCheckins">{{ loadingCheckins ? 'Loading…' : 'Refresh Check-ins' }}</button>
-          </div>
+          <button class="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900" @click="loadCheckins">{{ loadingCheckins ? 'Loading…' : 'Refresh Check-ins' }}</button>
         </div>
         <div class="w-full overflow-x-auto">
-          <table class="w-full min-w-[1200px] table-fixed divide-y divide-slate-200 text-sm">
+          <table class="w-full min-w-[1320px] table-fixed divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <tr>
-                <th class="w-[150px] px-3 py-3">Timestamp</th>
-                <th class="w-[140px] px-3 py-3">Code</th>
-                <th class="w-[250px] px-3 py-3">Participant</th>
-                <th class="w-[280px] px-3 py-3">Region / Affiliation</th>
-                <th class="w-[150px] px-3 py-3">Type</th>
-                <th class="w-[140px] px-3 py-3">Method</th>
-                <th class="w-[130px] px-3 py-3">Checked By</th>
-                <th class="w-[220px] px-3 py-3">Note</th>
+                <th class="w-[140px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(ciSort, 'timestamp')">Timestamp {{ sortIndicator(ciSort, 'timestamp') }}</button></th>
+                <th class="w-[120px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(ciSort, 'registrationCode')">Code {{ sortIndicator(ciSort, 'registrationCode') }}</button></th>
+                <th class="w-[230px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(ciSort, 'fullName')">Participant {{ sortIndicator(ciSort, 'fullName') }}</button></th>
+                <th class="w-[240px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(ciSort, 'region')">Region / Affiliation {{ sortIndicator(ciSort, 'region') }}</button></th>
+                <th class="w-[160px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(ciSort, 'participantType')">Type {{ sortIndicator(ciSort, 'participantType') }}</button></th>
+                <th class="w-[120px] px-2 py-3"><button type="button" class="font-semibold hover:text-slate-900" @click="toggleSort(ciSort, 'method')">Method {{ sortIndicator(ciSort, 'method') }}</button></th>
+                <th class="w-[130px] px-2 py-3">Checked By</th>
+                <th class="w-[180px] px-2 py-3">Note</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 bg-white">
@@ -535,24 +547,25 @@ onMounted(() => {
                 <td colspan="8" class="px-4 py-10 text-center text-slate-500">Loading check-ins…</td>
               </tr>
               <tr v-else-if="!filteredCheckins.length">
-                <td colspan="8" class="px-4 py-10 text-center text-slate-500">No check-ins found.</td>
+                <td colspan="8" class="px-4 py-10 text-center text-slate-500">No check-ins match the current filters.</td>
               </tr>
-              <tr v-for="row in paginatedCheckins" :key="row.checkinId || `${row.registrationCode}-${row.timestamp}`" class="align-top">
-                <td class="px-3 py-4 text-slate-600 break-words">{{ row.timestamp }}</td>
-                <td class="px-3 py-4 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
-                <td class="px-3 py-4 text-slate-700">
+              <tr v-for="row in filteredCheckins" :key="row.checkinId || `${row.registrationCode}-${row.timestamp}`" class="align-top">
+                <td class="px-2 py-3 text-slate-600 break-words">{{ row.timestamp }}</td>
+                <td class="px-2 py-3 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
+                <td class="px-2 py-3 text-slate-700">
                   <p class="font-semibold text-slate-900 break-words">{{ row.fullName }}</p>
                   <p class="text-xs text-slate-500 break-all">{{ row.email }}</p>
-                  <p class="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-800">{{ row.status || 'CHECKED_IN' }}</p>
+                  <p class="mt-1 text-xs text-slate-500">Sex: {{ row.sexAtBirth || '—' }}</p>
+                  <p class="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">{{ row.status || 'CHECKED_IN' }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">
+                <td class="px-2 py-3 text-slate-700 break-words">
                   <p class="font-medium text-slate-900">{{ row.region }}</p>
                   <p class="mt-1">{{ row.affiliation || row.hei }}</p>
                 </td>
-                <td class="px-3 py-4 text-slate-700 break-words">{{ row.participantType || '—' }}</td>
-                <td class="px-3 py-4 text-slate-700 break-words">{{ row.method || '—' }}</td>
-                <td class="px-3 py-4 text-slate-700 break-words">{{ row.checkedInBy || '—' }}</td>
-                <td class="px-3 py-4 text-slate-700 break-words">{{ row.note || '—' }}</td>
+                <td class="px-2 py-3 text-slate-700 break-words">{{ row.participantType || '—' }}</td>
+                <td class="px-2 py-3 text-slate-700 break-words">{{ row.method || '—' }}</td>
+                <td class="px-2 py-3 text-slate-700 break-words">{{ row.checkedInBy || '—' }}</td>
+                <td class="px-2 py-3 text-slate-700 break-words">{{ row.note || '—' }}</td>
               </tr>
             </tbody>
           </table>

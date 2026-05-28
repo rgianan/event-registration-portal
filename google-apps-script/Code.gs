@@ -43,6 +43,8 @@ var TRANSPORTATION_ELIGIBLE_TYPES = ['CHED Central Office', 'Resource Person/Fac
 var CURRENT_DESIGNATION_REQUIRED_TYPES = ['SAS Practitioner/Guidance/Faculty', 'Resource Person/Facilitator/Moderator', 'CHED Central Office'];
 var TOPIC_REQUIRED_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty', 'Other'];
 var TOPIC_CAPACITY_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty'];
+// Participant types that receive the Certificate of Compliance / CMO 63 s.2017 note.
+var CERTIFICATE_COMPLIANCE_TYPES = ['Student', 'SAS Practitioner/Guidance/Faculty'];
 var CHEDCO_OFFICE_OPTIONS = ['Office of Student Development and Services', 'AFMS', 'GAD', 'HEDFS', 'IAS', 'LLS', 'OCC - Chairman', 'OCC - Comm. Apag III', 'OCC - Comm. Aquino', 'OCC - Comm. Mallari', 'OCC - Comm. Ong', 'OED', 'OIQAG', 'OPRKM', 'OPSD', 'UNIFAST'];
 var FOOD_RESTRICTION_OPTIONS = ['Vegan', 'Peanut Allergies', 'Lactose Intolerance', 'Gluten Intolerance', 'N/A', 'Other'];
 var DEFAULT_BREAKOUT_SESSION_CAPACITY = 60;
@@ -68,13 +70,11 @@ var REGION_LABELS = {
   '18': 'Region XVIII - Negros Island Region (NIR)'
 };
 
-// Region values excluded from the HEI master everywhere — dropdown options AND
+// Region codes excluded from the HEI master everywhere — dropdown options AND
 // submit-time validation (canonicalizeHeiSelection_ validates against the master,
 // so an excluded region's HEIs can neither be shown nor accepted). This removes
-// BARMM even if the live HEI_List sheet uses code 15, BARMM, Bangsamoro, or
-// the full old ARMM/BARMM region label.
+// BARMM (code 15) regardless of whether the live HEI_List sheet still contains it.
 var EXCLUDED_REGION_CODES = { '15': true };
-var EXCLUDED_REGION_MARKERS = ['barmm', 'bangsamoro', 'muslim mindanao'];
 
 var BREAKOUT_SESSION_1_OPTIONS = [
   'Personal Well Being (Mental health, stress management, coping skills, self care, and help seeking behavior)',
@@ -116,6 +116,7 @@ function doPost(e) {
     if (action === 'checkInParticipant') return handleCheckInParticipant_(payload);
     if (action === 'updateReviewNote') return handleUpdateReviewNote_(payload);
     if (action === 'resendConfirmation') return handleResendConfirmation_(payload);
+    if (action === 'cancelConfirmation') return handleCancelConfirmation_(payload);
     throw new Error('Unsupported action.');
   } catch (err) {
     return jsonOutput_({ ok: false, message: errorMessage_(err) });
@@ -136,15 +137,12 @@ function handleSubmit_(payload) {
   var qrPayload = '';
   var qrImageUrl = '';
   var appended = false;
-  var sheet = null;
-  var headers = null;
-  var nextRow = 0;
   var lock = LockService.getScriptLock();
 
   if (!lock.tryLock(20000)) throw new Error('The registration system is busy. Please try again.');
 
   try {
-    sheet = getResponseSheet_(config);
+    var sheet = getResponseSheet_(config);
     if (emailAlreadyRegistered_(sheet, row.email)) {
       throw new Error('This email address is already registered. Only one registration per email address is allowed.');
     }
@@ -155,7 +153,7 @@ function handleSubmit_(payload) {
     qrPayload = makeQrPayload_(registrationCode, config);
     qrImageUrl = makeQrImageUrl_(qrPayload);
 
-    headers = getResponseHeaders_();
+    var headers = getResponseHeaders_();
     var values = registrationToRow_(headers, {
       timestamp: timestamp,
       registrationCode: registrationCode,
@@ -168,7 +166,7 @@ function handleSubmit_(payload) {
       reviewNote: ''
     });
 
-    nextRow = sheet.getLastRow() + 1;
+    var nextRow = sheet.getLastRow() + 1;
     sheet.getRange(nextRow, 1, 1, headers.length).setValues([values]);
     appended = true;
     markSubmissionFingerprint_(row, payload || {});
@@ -189,8 +187,7 @@ function handleSubmit_(payload) {
   });
 
   if (appended) {
-    // Write to the freshly-appended row instead of rescanning the whole sheet by code.
-    updateEmailStatusAtRow_(sheet, nextRow, headers, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
+    updateEmailStatus_(registrationCode, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
   }
 
   return jsonOutput_({
@@ -286,7 +283,7 @@ function sanitizeRegistration_(payload) {
 
   if (row.accommodation === 'Yes') {
     if (HEI_PARTICIPANT_TYPES.indexOf(row.participantType) !== -1) {
-      row.accommodationCheckInDate = '2026-06-03';
+      row.accommodationCheckInDate = '2026-06-02';
       row.accommodationCheckOutDate = '2026-06-05';
     } else {
       if (!row.accommodationCheckInDate) throw new Error('Accommodation check-in date is required.');
@@ -339,8 +336,11 @@ function countBreakoutSelectionsAll_(sheet) {
   var col1 = findExactHeaderIndex_(headers, 'Breakout_Session_1');
   var col4 = findExactHeaderIndex_(headers, 'Breakout_Session_4');
   var participantTypeCol = findExactHeaderIndex_(headers, 'Participant_Type');
+  var statusCol = findExactHeaderIndex_(headers, 'Status');
   if (participantTypeCol === -1) return out;
   for (var i = 1; i < values.length; i++) {
+    // Cancelled registrations free up their topic slot.
+    if (statusCol !== -1 && String(values[i][statusCol] || '').toLowerCase() === 'cancelled') continue;
     if (!breakoutCapacityAppliesForParticipant_(cleanText_(values[i][participantTypeCol], 120))) continue;
     if (col1 !== -1) {
       var v1 = cleanText_(values[i][col1], 700);
@@ -501,7 +501,7 @@ function getHeiMaster_() {
 
 function computeHeiMaster_() {
   var config = getConfig_();
-  var ss = getSpreadsheet_();
+  var ss = SpreadsheetApp.openById(config.spreadsheetId);
   var sheet = ss.getSheetByName(config.heiListSheetName);
   if (!sheet || sheet.getLastRow() < 2) return { available: false, regions: [], heis: [] };
 
@@ -527,7 +527,7 @@ function computeHeiMaster_() {
     var name = cleanText_(values[i][heiCol], 220);
     var status = statusCol === -1 ? '' : cleanText_(values[i][statusCol], 80);
     if (!region || !name) continue;
-    if (isExcludedRegion_(region)) continue;
+    if (EXCLUDED_REGION_CODES[normalizeKey_(region)]) continue;
     if (status && status.toLowerCase() !== 'existing') continue;
 
     var dedupeKey = normalizeKey_(region) + '|' + normalizeKey_(name);
@@ -650,16 +650,6 @@ function formatRegionLabel_(region) {
   return REGION_LABELS[raw] || raw;
 }
 
-function isExcludedRegion_(region) {
-  var key = normalizeKey_(region);
-  if (!key) return false;
-  if (EXCLUDED_REGION_CODES[key]) return true;
-  for (var i = 0; i < EXCLUDED_REGION_MARKERS.length; i++) {
-    if (key.indexOf(EXCLUDED_REGION_MARKERS[i]) !== -1) return true;
-  }
-  return false;
-}
-
 function compareRegionValues_(a, b) {
   var aRaw = String(a || '').trim();
   var bRaw = String(b || '').trim();
@@ -680,7 +670,7 @@ function handleAdminLogin_(payload) {
 
   var user = authenticateUserWithLockout_(email, password);
   var token = issueAdminToken_(user);
-  touchUserLastLogin_(user);
+  touchUserLastLogin_(email);
   auditLog_('admin_login_success', 'ok', email, '', 'Admin session issued (role=' + user.role + ').', '', '');
   return jsonOutput_({
     ok: true,
@@ -770,30 +760,8 @@ function handleListResponses_(payload) {
 }
 
 
-// Write a set of named columns in one setValues call when they're contiguous
-// (the common case — ensureHeaders_ keeps row 1 in getResponseHeaders_ order),
-// falling back to per-cell writes only if a sheet was manually reordered.
-function writeContiguousCells_(sheet, rowNumber, map, names, values) {
-  var start = map[names[0]];
-  var contiguous = typeof start === 'number';
-  for (var i = 1; contiguous && i < names.length; i++) {
-    if (map[names[i]] !== start + i) contiguous = false;
-  }
-  if (contiguous) {
-    sheet.getRange(rowNumber, start + 1, 1, names.length).setValues([values]);
-  } else {
-    for (var j = 0; j < names.length; j++) {
-      sheet.getRange(rowNumber, map[names[j]] + 1).setValue(values[j]);
-    }
-  }
-}
-
 function handleCheckInParticipant_(payload) {
-  // Identity comes from the verified session token, not the client payload, so
-  // attribution can't be spoofed. Falls back to 'admin' for older tokens that
-  // somehow carry no email.
-  var session = requireCheckinAccess_(payload);
-  var checkedInBy = (session && session.email) || 'admin';
+  requireAdmin_(payload);
 
   var rawQrText = cleanText_(payload.qrText || payload.registrationCode || '', 500);
   var registrationCode = extractRegistrationCodeFromQr_(rawQrText);
@@ -813,15 +781,20 @@ function handleCheckInParticipant_(payload) {
     var sheet = getResponseSheet_(config);
     var found = findRegistrationRow_(sheet, registrationCode);
     if (!found) {
-      auditLog_('participant_checkin_missing_code', 'failure', registrationCode, '', 'No registration record found. method=' + method + '; by=' + checkedInBy, userAgent, clientOrigin);
+      auditLog_('participant_checkin_missing_code', 'failure', registrationCode, '', 'No registration record found. method=' + method, userAgent, clientOrigin);
       throw new Error('Registration code not found. Check the QR code or ask the participant to present the confirmation email.');
     }
 
     var map = columnMap_(found.headers);
+    var registrationStatus = String(found.values[map.Status] || '').trim().toLowerCase();
+    if (registrationStatus === 'cancelled') {
+      auditLog_('participant_checkin_cancelled', 'failure', registrationCode, String(found.object.Email_Address || ''), 'Cancelled registration cannot check in. method=' + method, userAgent, clientOrigin);
+      throw new Error('This registration was cancelled and cannot be checked in.');
+    }
     var currentStatus = String(found.values[map.Check_In_Status] || '').trim();
     if (currentStatus === CHECKIN_STATUS_CHECKED_IN) {
       var duplicateParticipant = buildParticipantPayload_(found, true);
-      auditLog_('participant_checkin_duplicate', 'duplicate', registrationCode, duplicateParticipant.email, 'Already checked in. method=' + method + '; by=' + checkedInBy, userAgent, clientOrigin);
+      auditLog_('participant_checkin_duplicate', 'duplicate', registrationCode, duplicateParticipant.email, 'Already checked in. method=' + method, userAgent, clientOrigin);
       return jsonOutput_({
         ok: true,
         duplicate: true,
@@ -831,35 +804,26 @@ function handleCheckInParticipant_(payload) {
     }
 
     var timestamp = new Date();
-    var checkInAtLabel = formatDateTime_(timestamp);
-    // Two batched writes over contiguous column blocks instead of 7 single-cell
-    // writes: Check_In_Status..Check_In_Note are 5 adjacent columns; Updated_At..
-    // Updated_By are 2 adjacent columns (per getResponseHeaders_).
-    writeContiguousCells_(sheet, found.rowNumber, map,
-      ['Check_In_Status', 'Check_In_At', 'Check_In_By', 'Check_In_Method', 'Check_In_Note'],
-      [CHECKIN_STATUS_CHECKED_IN, checkInAtLabel, checkedInBy, method, note]);
-    writeContiguousCells_(sheet, found.rowNumber, map,
-      ['Updated_At', 'Updated_By'],
-      [checkInAtLabel, 'admin_checkin']);
+    sheet.getRange(found.rowNumber, map.Check_In_Status + 1).setValue(CHECKIN_STATUS_CHECKED_IN);
+    sheet.getRange(found.rowNumber, map.Check_In_At + 1).setValue(formatDateTime_(timestamp));
+    sheet.getRange(found.rowNumber, map.Check_In_By + 1).setValue('admin');
+    sheet.getRange(found.rowNumber, map.Check_In_Method + 1).setValue(method);
+    sheet.getRange(found.rowNumber, map.Check_In_Note + 1).setValue(note);
+    sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(timestamp));
+    sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue('admin_checkin');
 
-    // Reuse the row already read (updated in memory) instead of re-scanning the
-    // entire sheet just to read back what we just wrote.
-    found.object.Check_In_Status = CHECKIN_STATUS_CHECKED_IN;
-    found.object.Check_In_At = checkInAtLabel;
-    found.object.Check_In_By = checkedInBy;
-    found.object.Check_In_Method = method;
-    found.object.Check_In_Note = note;
-    var participant = buildParticipantPayload_(found, false);
+    var refreshed = findRegistrationRow_(sheet, registrationCode);
+    var participant = buildParticipantPayload_(refreshed, false);
     appendCheckinLog_(config, participant, {
       timestamp: timestamp,
       method: method,
-      checkedInBy: checkedInBy,
+      checkedInBy: 'admin',
       sourceQrText: rawQrText,
       clientOrigin: clientOrigin,
       userAgent: userAgent,
       note: note
     });
-    auditLog_('participant_checkin', 'ok', registrationCode, participant.email, 'Checked in onsite. method=' + method + '; by=' + checkedInBy + (note ? '; note=' + note : ''), userAgent, clientOrigin);
+    auditLog_('participant_checkin', 'ok', registrationCode, participant.email, 'Checked in onsite. method=' + method + (note ? '; note=' + note : ''), userAgent, clientOrigin);
 
     return jsonOutput_({
       ok: true,
@@ -873,11 +837,10 @@ function handleCheckInParticipant_(payload) {
 }
 
 function handleListCheckins_(payload) {
-  requireCheckinAccess_(payload);
-  var rawLimit = String(payload.limit || 30).trim().toLowerCase();
-  var returnAll = rawLimit === 'all';
-  var limit = returnAll ? 0 : Number(rawLimit || 30);
-  if (!returnAll && (!limit || limit < 1)) limit = 30;
+  requireAdmin_(payload);
+  var limit = Number(payload.limit || 30);
+  if (!limit || limit < 1) limit = 30;
+  if (limit > 200) limit = 200;
 
   var sheet = getCheckinSheet_(getConfig_());
   var values = sheet.getDataRange().getValues();
@@ -885,23 +848,16 @@ function handleListCheckins_(payload) {
 
   var headers = values[0];
   var rows = [];
-  var sexByRegistrationCode = null;
-  for (var i = values.length - 1; i >= 1 && (returnAll || rows.length < limit); i--) {
+  for (var i = values.length - 1; i >= 1 && rows.length < limit; i--) {
     var obj = rowToObject_(headers, values[i]);
-    var registrationCode = String(obj.Registration_Code || '');
-    var sexAtBirth = String(obj.Assigned_Sex_At_Birth || '');
-    if (!sexAtBirth && registrationCode) {
-      if (sexByRegistrationCode === null) sexByRegistrationCode = getRegistrationSexByCode_();
-      sexAtBirth = sexByRegistrationCode[registrationCode] || '';
-    }
     rows.push({
       timestamp: formatDateTime_(obj.Timestamp),
       checkinId: String(obj.Checkin_ID || ''),
-      registrationCode: registrationCode,
+      registrationCode: String(obj.Registration_Code || ''),
       email: String(obj.Email_Address || ''),
       fullName: String(obj.Full_Name || ''),
+      sexAtBirth: String(obj.Assigned_Sex_At_Birth || ''),
       region: String(obj.Region || ''),
-      sexAtBirth: sexAtBirth,
       hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
       affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
       participantType: String(obj.Participant_Type || ''),
@@ -912,24 +868,6 @@ function handleListCheckins_(payload) {
     });
   }
   return jsonOutput_({ ok: true, rows: rows });
-}
-
-function getRegistrationSexByCode_() {
-  var out = {};
-  try {
-    var sheet = getResponseSheet_(getConfig_());
-    var values = sheet.getDataRange().getValues();
-    if (!values || values.length < 2) return out;
-    var headers = values[0];
-    var codeCol = findExactHeaderIndex_(headers, 'Registration_Code');
-    var sexCol = findExactHeaderIndex_(headers, 'Assigned_Sex_At_Birth');
-    if (codeCol === -1 || sexCol === -1) return out;
-    for (var i = 1; i < values.length; i++) {
-      var code = String(values[i][codeCol] || '');
-      if (code) out[code] = String(values[i][sexCol] || '');
-    }
-  } catch (err) {}
-  return out;
 }
 
 function handleUpdateReviewNote_(payload) {
@@ -958,8 +896,7 @@ function handleResendConfirmation_(payload) {
   var code = cleanText_(payload.registrationCode, 40);
   if (!code) throw new Error('Missing registration code.');
 
-  var sheet = getResponseSheet_(getConfig_());
-  var found = findRegistrationRow_(sheet, code);
+  var found = findRegistrationRow_(getResponseSheet_(getConfig_()), code);
   if (!found) throw new Error('Registration record not found.');
 
   var obj = found.object;
@@ -974,7 +911,7 @@ function handleResendConfirmation_(payload) {
     certificateCompliancePdfUrl: getConfig_().certificateCompliancePdfUrl,
     row: row
   });
-  updateEmailStatusAtRow_(sheet, found.rowNumber, found.headers, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
+  updateEmailStatus_(code, emailResult.sent ? 'YES' : 'NO', emailResult.error || '');
   auditLog_('resend_confirmation', emailResult.sent ? 'ok' : 'failure', code, row.email, emailResult.error || 'Confirmation resent by admin.', '', '');
 
   return jsonOutput_({
@@ -982,6 +919,124 @@ function handleResendConfirmation_(payload) {
     message: emailResult.sent ? 'Confirmation email resent.' : 'Resend attempted, but email failed.',
     emailSent: !!emailResult.sent,
     emailError: emailResult.error || ''
+  });
+}
+
+// Marks a registration as Cancelled, persists the cancellation reason (taken from
+// the admin's review note), and emails the participant. Uses the response-sheet
+// lock so a cancel can't race with a concurrent check-in or resend.
+function handleCancelConfirmation_(payload) {
+  var session = requireAdmin_(payload);
+  var code = cleanText_(payload && payload.registrationCode, 40);
+  if (!code) throw new Error('Missing registration code.');
+  var reason = cleanText_(payload && payload.reason, 2000);
+  if (!reason) throw new Error('A cancellation reason is required. Save it in the internal note before cancelling.');
+
+  var lock = LockService.getDocumentLock();
+  lock.waitLock(20000);
+  try {
+    var config = getConfig_();
+    var sheet = getResponseSheet_(config);
+    var found = findRegistrationRow_(sheet, code);
+    if (!found) throw new Error('Registration record not found.');
+
+    var map = columnMap_(found.headers);
+    var currentStatus = String(found.values[map.Status] || '').trim().toLowerCase();
+    if (currentStatus === 'cancelled') {
+      throw new Error('This registration is already cancelled.');
+    }
+
+    sheet.getRange(found.rowNumber, map.Status + 1).setValue('Cancelled');
+    sheet.getRange(found.rowNumber, map.Review_Note + 1).setValue(reason);
+    sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(new Date()));
+    sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue(session.email || 'admin');
+    SpreadsheetApp.flush();
+
+    var row = rowObjectToRegistration_(found.object);
+    var emailResult = sendCancellationEmailSafe_({
+      eventName: config.eventName,
+      organizerName: config.eventOrganizerName,
+      registrationCode: code,
+      reason: reason,
+      cancelledBy: session.email || '',
+      row: row
+    });
+
+    auditLog_('cancel_confirmation', emailResult.sent ? 'ok' : 'partial',
+              code, row.email,
+              'Cancelled by ' + (session.email || 'admin') + '. Reason: ' + reason + (emailResult.sent ? '' : ' (email failed: ' + (emailResult.error || 'unknown') + ')'),
+              '', '');
+
+    return jsonOutput_({
+      ok: true,
+      status: 'Cancelled',
+      message: emailResult.sent
+        ? 'Registration cancelled and notification email sent.'
+        : 'Registration cancelled, but the notification email failed: ' + (emailResult.error || 'unknown'),
+      emailSent: !!emailResult.sent,
+      emailError: emailResult.error || ''
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function sendCancellationEmailSafe_(data) {
+  try {
+    sendCancellationEmail_(data);
+    return { sent: true, error: '' };
+  } catch (err) {
+    return { sent: false, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+function sendCancellationEmail_(data) {
+  var row = data.row;
+  var eventName = data.eventName || 'Event Registration Portal';
+  var senderName = data.organizerName || 'Event Registration Portal';
+  var subject = '[' + eventName + '] Registration Cancelled - ' + data.registrationCode;
+  var reasonHtml = escapeHtml_(data.reason).replace(/\n/g, '<br>');
+
+  var htmlBody = '' +
+    '<div style="font-family:Arial,sans-serif;color:#0f172a;font-size:14px;line-height:1.6;">' +
+    '<p>Good day ' + escapeHtml_(row.fullName) + ',</p>' +
+    '<p>We are writing to inform you that your registration for <strong>' + escapeHtml_(eventName) + '</strong> has been <strong style="color:#b91c1c;">cancelled</strong>.</p>' +
+    '<div style="margin:16px 0;padding:14px;border:1px solid #fecaca;background:#fef2f2;border-radius:14px;max-width:760px;">' +
+    '<p style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#b91c1c;font-weight:bold;">Reason</p>' +
+    '<p style="margin:0;color:#0f172a;">' + reasonHtml + '</p>' +
+    '</div>' +
+    '<table style="border-collapse:collapse;width:100%;max-width:760px;font-family:Arial,sans-serif;font-size:14px;">' +
+    rowHtml_('Registration Code', escapeHtml_(data.registrationCode)) +
+    rowHtml_('Full Name', escapeHtml_(row.fullName)) +
+    rowHtml_('Email Address', escapeHtml_(row.email)) +
+    '</table>' +
+    '<p style="margin-top:16px;">Your registration code is no longer valid for check-in. If you believe this is a mistake, please reply to this email.</p>' +
+    '<p>Thank you for your understanding.</p>' +
+    '</div>';
+
+  var plainBody = [
+    'Good day ' + row.fullName + ',',
+    '',
+    'We are writing to inform you that your registration for ' + eventName + ' has been CANCELLED.',
+    '',
+    'Reason:',
+    data.reason,
+    '',
+    'Registration Code: ' + data.registrationCode,
+    'Full Name: ' + row.fullName,
+    'Email Address: ' + row.email,
+    '',
+    'Your registration code is no longer valid for check-in. If you believe this is a mistake, please reply to this email.',
+    '',
+    'Thank you for your understanding.'
+  ].join('\n');
+
+  MailApp.sendEmail({
+    to: row.email,
+    subject: subject,
+    htmlBody: htmlBody,
+    body: plainBody,
+    name: senderName
   });
 }
 
@@ -1073,7 +1128,7 @@ function registrationToRow_(headers, data) {
 }
 
 function getResponseSheet_(config) {
-  var ss = getSpreadsheet_();
+  var ss = SpreadsheetApp.openById(config.spreadsheetId);
   var sheet = ss.getSheetByName(config.sheetName);
   var headers = getResponseHeaders_();
   if (!sheet) {
@@ -1088,7 +1143,7 @@ function getResponseSheet_(config) {
 
 
 function getCheckinSheet_(config) {
-  var ss = getSpreadsheet_();
+  var ss = SpreadsheetApp.openById(config.spreadsheetId);
   var sheet = ss.getSheetByName(config.checkinsSheetName);
   var headers = getCheckinHeaders_();
   if (!sheet) {
@@ -1103,7 +1158,7 @@ function getCheckinSheet_(config) {
 
 
 function getOfficeSheet_(sheetName, defaultOffices) {
-  var ss = getSpreadsheet_();
+  var ss = SpreadsheetApp.openById(getConfig_().spreadsheetId);
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
@@ -1187,7 +1242,6 @@ function appendCheckinLog_(config, participant, meta) {
     Full_Name: participant.fullName,
     Region: participant.region,
     Affiliation: participant.affiliation || participant.hei,
-    Assigned_Sex_At_Birth: participant.sexAtBirth,
     Participant_Type: participant.participantType,
     Check_In_Status: CHECKIN_STATUS_CHECKED_IN,
     Method: meta.method,
@@ -1195,7 +1249,8 @@ function appendCheckinLog_(config, participant, meta) {
     Source_QR_Text: String(meta.sourceQrText || '').slice(0, 500),
     Client_Origin: String(meta.clientOrigin || '').slice(0, 200),
     User_Agent: String(meta.userAgent || '').slice(0, 500),
-    Note: String(meta.note || '').slice(0, 250)
+    Note: String(meta.note || '').slice(0, 250),
+    Assigned_Sex_At_Birth: participant.sexAtBirth || ''
   };
   sheet.appendRow(headers.map(function (h) { return Object.prototype.hasOwnProperty.call(valuesByHeader, h) ? valuesByHeader[h] : ''; }));
 }
@@ -1378,22 +1433,15 @@ function cleanDate_(value) {
   return raw;
 }
 
-function updateEmailStatusAtRow_(sheet, rowNumber, headers, sentValue, errorValue) {
-  var map = columnMap_(headers);
-  sheet.getRange(rowNumber, map.Email_Sent + 1).setValue(sentValue);
-  sheet.getRange(rowNumber, map.Email_Error + 1).setValue(errorValue || '');
-  sheet.getRange(rowNumber, map.Updated_At + 1).setValue(formatDateTime_(new Date()));
-  sheet.getRange(rowNumber, map.Updated_By + 1).setValue('system');
-}
-
-// Code-lookup fallback for callers that don't already know the row. Hot paths
-// (submit, resend) pass the known row to updateEmailStatusAtRow_ directly to skip
-// the full-sheet scan this performs.
 function updateEmailStatus_(registrationCode, sentValue, errorValue) {
   var sheet = getResponseSheet_(getConfig_());
   var found = findRegistrationRow_(sheet, registrationCode);
   if (!found) return;
-  updateEmailStatusAtRow_(sheet, found.rowNumber, found.headers, sentValue, errorValue);
+  var map = columnMap_(found.headers);
+  sheet.getRange(found.rowNumber, map.Email_Sent + 1).setValue(sentValue);
+  sheet.getRange(found.rowNumber, map.Email_Error + 1).setValue(errorValue || '');
+  sheet.getRange(found.rowNumber, map.Updated_At + 1).setValue(formatDateTime_(new Date()));
+  sheet.getRange(found.rowNumber, map.Updated_By + 1).setValue('system');
 }
 
 function makeUniqueRegistrationCode_(sheet) {
@@ -1442,6 +1490,9 @@ function sendConfirmationEmail_(data) {
   var food = (row.foodRestrictions || []).join('; ') + (row.foodRestrictionOther ? ' - ' + row.foodRestrictionOther : '');
   var participantType = row.participantType + (row.participantTypeOther ? ' - ' + row.participantTypeOther : '');
   var regionDisplay = row.region ? formatRegionLabel_(row.region) : 'N/A';
+  // The Certificate of Compliance note applies only to HEI-affiliated participants
+  // (Student, SAS Practitioner/Guidance/Faculty).
+  var showCertificate = CERTIFICATE_COMPLIANCE_TYPES.indexOf(row.participantType) !== -1;
 
   var subject = '[' + eventName + '] Registration Confirmation - ' + data.registrationCode;
   var topicLines = [];
@@ -1478,7 +1529,7 @@ function sendConfirmationEmail_(data) {
     (row.breakoutSession4 ? rowHtml_('Topic 4', escapeHtml_(row.breakoutSession4)) : '') +
     '</table>' +
     '<p style="margin-top:16px;">Please keep this email for your reference.</p>' +
-    buildCertificateComplianceHtml_(data.certificateCompliancePdfUrl, row.participantType) +
+    (showCertificate ? buildCertificateComplianceHtml_(data.certificateCompliancePdfUrl) : '') +
     '<p>Thank you.</p>' +
     '</div>';
 
@@ -1508,9 +1559,8 @@ function sendConfirmationEmail_(data) {
     'Current Designation: ' + (row.currentDesignation || 'N/A')
   ].concat(topicLines, [
     '',
-    'Please keep this email for your reference.',
-    '',
-    certificateCompliancePlainText_(data.certificateCompliancePdfUrl, row.participantType),
+    'Please keep this email for your reference.'
+  ], showCertificate ? ['', certificateCompliancePlainText_(data.certificateCompliancePdfUrl)] : [], [
     '',
     'Thank you.'
   ]).join('\n');
@@ -1536,12 +1586,7 @@ function certificateComplianceMessage_() {
   return 'IMPORTANT: Please email your approved Certificate of Compliance to OSDS at osds@ched.gov.ph within 5 calendar days, as proof of your institution\'s authorization to participate in the activity, in accordance with CHED Memorandum Order No. 63, series of 2017.';
 }
 
-function certificateComplianceRequiredForParticipant_(participantType) {
-  return HEI_PARTICIPANT_TYPES.indexOf(String(participantType || '')) !== -1;
-}
-
-function buildCertificateComplianceHtml_(url, participantType) {
-  if (!certificateComplianceRequiredForParticipant_(participantType)) return '';
+function buildCertificateComplianceHtml_(url) {
   var link = normalizeDriveFileLink_(url || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL);
   return '' +
     '<div style="margin:16px 0;padding:14px;border:1px solid #fed7aa;background:#fff7ed;border-radius:14px;max-width:760px;">' +
@@ -1550,8 +1595,7 @@ function buildCertificateComplianceHtml_(url, participantType) {
     '</div>';
 }
 
-function certificateCompliancePlainText_(url, participantType) {
-  if (!certificateComplianceRequiredForParticipant_(participantType)) return '';
+function certificateCompliancePlainText_(url) {
   var link = normalizeDriveFileLink_(url || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL);
   return certificateComplianceMessage_() + '\nCertificate of Compliance PDF: ' + link;
 }
@@ -1586,34 +1630,12 @@ function submissionFingerprint_(row, payload) {
 
 // Data endpoints authenticate with a short-lived signed session token issued at
 // login, NOT the user's password. The token carries the user's email + role so
-// actions can be attributed in the audit log AND authorized by role:
-//   - requireAdmin_        full access (PII dashboard, notes, resend) — role 'admin'
-//   - requireCheckinAccess_ onsite check-in only — roles 'admin', 'staff', 'checkin'
-// Existing accounts seeded with the default role 'admin' are unaffected.
-var ROLE_ADMIN = 'admin';
-var CHECKIN_ALLOWED_ROLES = { 'admin': true, 'staff': true, 'checkin': true };
-
-function requireSession_(payload) {
+// actions can be attributed in the audit log.
+function requireAdmin_(payload) {
   var token = (payload && typeof payload === 'object') ? payload.sessionToken : payload;
   var session = verifyAdminToken_(token);
   if (!session) throw new Error('Your admin session has expired or is invalid. Please log in again.');
   return session; // { email, role }
-}
-
-function requireAdmin_(payload) {
-  var session = requireSession_(payload);
-  if (String(session.role || '').toLowerCase() !== ROLE_ADMIN) {
-    throw new Error('This action requires an admin account.');
-  }
-  return session;
-}
-
-function requireCheckinAccess_(payload) {
-  var session = requireSession_(payload);
-  if (!CHECKIN_ALLOWED_ROLES[String(session.role || '').toLowerCase()]) {
-    throw new Error('This account is not authorized for check-in.');
-  }
-  return session;
 }
 
 // Per-email lockout (NOT global): repeated failures lock only the targeted email,
@@ -1719,7 +1741,7 @@ function normalizeEmail_(value) {
 
 function getUsersSheet_() {
   var config = getConfig_();
-  var ss = getSpreadsheet_();
+  var ss = SpreadsheetApp.openById(config.spreadsheetId);
   var sheet = ss.getSheetByName(config.usersSheetName);
   if (!sheet) {
     sheet = ss.insertSheet(config.usersSheetName);
@@ -1758,9 +1780,10 @@ function findUserByEmail_(email) {
   return null;
 }
 
-function touchUserLastLogin_(user) {
+function touchUserLastLogin_(email) {
   try {
-    if (!user || !user.rowIndex) return;
+    var user = findUserByEmail_(email);
+    if (!user) return;
     var sheet = getUsersSheet_();
     var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     var col = findExactHeaderIndex_(headers, 'Last_Login_At');
@@ -1886,7 +1909,7 @@ function listUsers() {
 function getAuditSheet_() {
   var props = PropertiesService.getScriptProperties();
   var name = props.getProperty('AUDIT_SHEET_NAME') || 'Audit';
-  var ss = getSpreadsheet_();
+  var ss = SpreadsheetApp.openById(getConfig_().spreadsheetId);
   var sheet = ss.getSheetByName(name);
   var headers = ['Timestamp', 'Event_ID', 'Action', 'Status', 'Actor', 'Registration_Code', 'Email_Address', 'Detail', 'User_Agent', 'Client_Origin'];
   if (!sheet) {
@@ -1939,18 +1962,6 @@ function getConfig_() {
   };
 }
 
-// One SpreadsheetApp.openById per web-app execution. Each invocation is a fresh
-// container, so this resets per request while collapsing the repeated opens that
-// happened across getResponseSheet_/getUsersSheet_/getAuditSheet_/etc. A single
-// login alone previously opened the spreadsheet ~3 times (Users read, Users write,
-// Audit append).
-var SS_MEMO_ = null;
-function getSpreadsheet_() {
-  if (SS_MEMO_) return SS_MEMO_;
-  SS_MEMO_ = SpreadsheetApp.openById(getConfig_().spreadsheetId);
-  return SS_MEMO_;
-}
-
 function verifySubmitToken_(token) {
   var expected = getConfig_().submitSharedToken;
   if (!expected) return;
@@ -1984,7 +1995,7 @@ function verifyTurnstile_(token) {
 function setupProject_() {
   var config = getConfig_();
   if (!config.spreadsheetId || config.spreadsheetId === 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE') throw new Error('Set SPREADSHEET_ID in Script Properties first.');
-  try { getSpreadsheet_().setSpreadsheetTimeZone(APP_TIME_ZONE); } catch (err) {}
+  try { SpreadsheetApp.openById(config.spreadsheetId).setSpreadsheetTimeZone(APP_TIME_ZONE); } catch (err) {}
   getResponseSheet_(config);
   getCheckinSheet_(config);
   getOfficeSheet_(config.chedcoSheetName, CHEDCO_OFFICE_OPTIONS);
