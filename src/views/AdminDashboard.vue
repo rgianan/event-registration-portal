@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { API_URL, postJson } from '../lib/api.js'
 
 const loadingResponses = ref(false)
@@ -110,6 +110,40 @@ const filteredCheckins = computed(() => {
   return applySort(matches, ciSort.key, ciSort.dir)
 })
 
+// Page-size + pagination state per table. Tables default to 25 rows per page and
+// offer 25 / 50 / 100 / All. Returned as a reactive object so the select v-model
+// and the displayed counters unwrap cleanly in the template.
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 'all']
+
+function usePagination(sourceComputed) {
+  const pageSize = ref(25)
+  const page = ref(1)
+  const totalPages = computed(() =>
+    pageSize.value === 'all' ? 1 : Math.max(1, Math.ceil(sourceComputed.value.length / pageSize.value))
+  )
+  const currentPage = computed(() => Math.min(Math.max(1, page.value), totalPages.value))
+  const paged = computed(() => {
+    if (pageSize.value === 'all') return sourceComputed.value
+    const start = (currentPage.value - 1) * pageSize.value
+    return sourceComputed.value.slice(start, start + pageSize.value)
+  })
+  const rangeStart = computed(() =>
+    sourceComputed.value.length === 0 ? 0 : (pageSize.value === 'all' ? 1 : (currentPage.value - 1) * pageSize.value + 1)
+  )
+  const rangeEnd = computed(() =>
+    pageSize.value === 'all' ? sourceComputed.value.length : Math.min(currentPage.value * pageSize.value, sourceComputed.value.length)
+  )
+  // Jump back to the first page whenever the result set size or page size changes
+  // (e.g. after searching, filtering, or reloading the table).
+  watch([() => sourceComputed.value.length, pageSize], () => { page.value = 1 })
+  function prev() { if (currentPage.value > 1) page.value = currentPage.value - 1 }
+  function next() { if (currentPage.value < totalPages.value) page.value = currentPage.value + 1 }
+  return reactive({ pageSize, currentPage, totalPages, paged, rangeStart, rangeEnd, prev, next })
+}
+
+const regPg = usePagination(filteredResponses)
+const ciPg = usePagination(filteredCheckins)
+
 function resetAdminMessages() {
   adminError.value = ''
   adminSuccess.value = ''
@@ -160,7 +194,7 @@ async function loadCheckins() {
   loadingCheckins.value = true
   resetAdminMessages()
   try {
-    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 200 })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 'all' })
     checkins.value = Array.isArray(data.rows) ? data.rows : []
     lastLoadedAt.value = new Date().toLocaleString()
   } catch (error) {
@@ -267,11 +301,11 @@ function csvEscape(value) {
 function exportCsvClient() {
   const isCheckins = activeView.value === 'checkins'
   const header = isCheckins
-    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
+    ? ['Timestamp', 'Check-in ID', 'Registration Code', 'Email Address', 'Full Name', 'Region', 'Assigned Sex at Birth', 'Affiliation', 'Participant Type', 'Check-in Status', 'Method', 'Checked In By', 'Note']
     : ['Timestamp', 'Registration Code', 'Status', 'Email Address', 'Full Name', 'Nick Name', 'Assigned Sex at Birth', 'Region', 'Affiliation', 'Contact Number', 'Food Restrictions', 'Emergency Contact', 'Accommodation', 'Accommodation Check-in Date', 'Accommodation Check-out Date', 'CHED to Tagaytay Venue 02 June 2026, 2:00PM', 'CHED to Tagaytay Venue 03 June 2026, 6:00AM', 'Tagaytay Venue to CHED 05 June 2026, 10:00AM', 'Participant Type', 'Current Designation', 'Topic 1', 'Topic 4', 'Email Sent', 'Check-in Status', 'Check-in At', 'Check-in Method', 'Review Note']
 
   const rows = isCheckins
-    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
+    ? filteredCheckins.value.map((row) => [row.timestamp, row.checkinId, row.registrationCode, row.email, row.fullName, row.region, row.sexAtBirth, row.affiliation || row.hei, row.participantType, row.status, row.method, row.checkedInBy, row.note])
     : filteredResponses.value.map((row) => [row.timestamp, row.registrationCode, row.status, row.email, row.fullName, row.nickName, row.sexAtBirth, row.region, row.affiliation || row.hei, row.contactNumber, row.foodRestrictions, row.emergencyContact, row.accommodation, row.accommodationCheckInDate, row.accommodationCheckOutDate, row.transportationFromChedToTagaytay, row.transportationFromChedToTagaytayJune3, row.transportationFromTagaytayToChed, row.participantType, row.currentDesignation, row.breakoutSession1, row.breakoutSession4, row.emailSent, row.checkInStatus, row.checkInAt, row.checkInMethod, row.reviewNote])
 
   const csv = [header, ...rows].map((line) => line.map(csvEscape).join(',')).join('\n')
@@ -457,7 +491,7 @@ onMounted(() => {
                 <td colspan="10" class="px-4 py-10 text-center text-slate-500">No registrations match the current filters.</td>
               </tr>
 
-              <tr v-for="row in filteredResponses" :key="row.registrationCode" class="align-top" :class="String(row.status || '').toLowerCase() === 'cancelled' ? 'bg-rose-50/40' : ''">
+              <tr v-for="row in regPg.paged" :key="row.registrationCode" class="align-top" :class="String(row.status || '').toLowerCase() === 'cancelled' ? 'bg-rose-50/40' : ''">
                 <td class="px-2 py-3 text-slate-600 break-words">{{ row.timestamp }}</td>
                 <td class="px-2 py-3 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
                 <td class="px-2 py-3 text-slate-700">
@@ -518,6 +552,22 @@ onMounted(() => {
             </tbody>
           </table>
         </div>
+        <div class="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex items-center gap-2 text-slate-600">
+            <label class="font-medium">Rows per page</label>
+            <select v-model="regPg.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+              <option v-for="opt in PAGE_SIZE_OPTIONS" :key="opt" :value="opt">{{ opt === 'all' ? 'All' : opt }}</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-3 text-slate-600">
+            <span>{{ regPg.rangeStart }}–{{ regPg.rangeEnd }} of {{ filteredResponses.length }}</span>
+            <div class="flex gap-2">
+              <button type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="regPg.currentPage <= 1" @click="regPg.prev()">Prev</button>
+              <button type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="regPg.currentPage >= regPg.totalPages" @click="regPg.next()">Next</button>
+            </div>
+            <span class="text-slate-500">Page {{ regPg.currentPage }} of {{ regPg.totalPages }}</span>
+          </div>
+        </div>
       </div>
 
       <div v-else class="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white">
@@ -549,7 +599,7 @@ onMounted(() => {
               <tr v-else-if="!filteredCheckins.length">
                 <td colspan="8" class="px-4 py-10 text-center text-slate-500">No check-ins match the current filters.</td>
               </tr>
-              <tr v-for="row in filteredCheckins" :key="row.checkinId || `${row.registrationCode}-${row.timestamp}`" class="align-top">
+              <tr v-for="row in ciPg.paged" :key="row.checkinId || `${row.registrationCode}-${row.timestamp}`" class="align-top">
                 <td class="px-2 py-3 text-slate-600 break-words">{{ row.timestamp }}</td>
                 <td class="px-2 py-3 font-mono font-bold text-slate-900 break-all">{{ row.registrationCode }}</td>
                 <td class="px-2 py-3 text-slate-700">
@@ -569,6 +619,22 @@ onMounted(() => {
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex items-center gap-2 text-slate-600">
+            <label class="font-medium">Rows per page</label>
+            <select v-model="ciPg.pageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+              <option v-for="opt in PAGE_SIZE_OPTIONS" :key="opt" :value="opt">{{ opt === 'all' ? 'All' : opt }}</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-3 text-slate-600">
+            <span>{{ ciPg.rangeStart }}–{{ ciPg.rangeEnd }} of {{ filteredCheckins.length }}</span>
+            <div class="flex gap-2">
+              <button type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="ciPg.currentPage <= 1" @click="ciPg.prev()">Prev</button>
+              <button type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="ciPg.currentPage >= ciPg.totalPages" @click="ciPg.next()">Next</button>
+            </div>
+            <span class="text-slate-500">Page {{ ciPg.currentPage }} of {{ ciPg.totalPages }}</span>
+          </div>
         </div>
       </div>
     </div>

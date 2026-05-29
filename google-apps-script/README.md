@@ -83,3 +83,17 @@ Accommodation_Check_Out_Date = 2026-06-05
 ```
 
 Other participant types that answer `Yes` must provide their own check-in and check-out dates.
+
+### Performance / cold-start (optional keep-warm)
+
+After an idle period the first request hits a cold Apps Script container, which is
+most of the ~2s baseline latency. To reduce this, you can install a time-driven
+trigger that keeps the project warm:
+
+1. Open the Apps Script editor.
+2. Select `setupKeepWarmTrigger_` from the function dropdown and **Run** once
+   (authorize when prompted — triggers can't be installed from a deploy).
+
+This runs `keepWarm_` every 5 minutes (a single-cell read). To turn it off later,
+run `removeKeepWarmTrigger_`. It uses a small amount of the daily trigger-runtime
+quota and is safe to leave disabled if you prefer.

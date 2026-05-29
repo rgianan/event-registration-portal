@@ -501,7 +501,7 @@ function getHeiMaster_() {
 
 function computeHeiMaster_() {
   var config = getConfig_();
-  var ss = SpreadsheetApp.openById(config.spreadsheetId);
+  var ss = openSpreadsheet_(config);
   var sheet = ss.getSheetByName(config.heiListSheetName);
   if (!sheet || sheet.getLastRow() < 2) return { available: false, regions: [], heis: [] };
 
@@ -708,19 +708,13 @@ function handleListResponses_(payload) {
       status: String(obj.Status || ''),
       email: String(obj.Email_Address || ''),
       fullName: String(obj.Full_Name || ''),
-      firstName: String(obj.First_Name || ''),
-      middleInitial: String(obj.Middle_Initial || ''),
-      lastName: String(obj.Last_Name || ''),
       nickName: String(obj.Nick_Name || ''),
       sexAtBirth: String(obj.Assigned_Sex_At_Birth || ''),
       region: String(obj.Region || ''),
       hei: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
       affiliation: String(obj.Affiliation || obj.Higher_Education_Institution || ''),
-      chedcoOffice: String(obj.CHEDCO_Office || ''),
-      resourceAffiliation: String(obj.Resource_Affiliation || ''),
       contactNumber: String(obj.Contact_Number || ''),
       foodRestrictions: String(obj.Food_Restrictions || ''),
-      foodRestrictionOther: String(obj.Food_Restrictions_Other || ''),
       emergencyContact: String(obj.Emergency_Contact || ''),
       accommodation: accommodation,
       accommodationCheckInDate: formatDateOnly_(obj.Accommodation_Check_In_Date),
@@ -729,7 +723,6 @@ function handleListResponses_(payload) {
       transportationFromChedToTagaytayJune3: String(obj.Transportation_From_CHED_To_Tagaytay_Venue_03_June_2026_6AM || ''),
       transportationFromTagaytayToChed: String(obj.Transportation_From_Tagaytay_Venue_To_CHED || ''),
       participantType: participantType,
-      participantTypeOther: String(obj.Participant_Type_Other || ''),
       currentDesignation: String(obj.Current_Designation || ''),
       breakoutSession1: String(obj.Breakout_Session_1 || ''),
       breakoutSession4: String(obj.Breakout_Session_4 || ''),
@@ -739,9 +732,7 @@ function handleListResponses_(payload) {
       reviewNote: String(obj.Review_Note || ''),
       checkInStatus: String(obj.Check_In_Status || ''),
       checkInAt: formatDateTime_(obj.Check_In_At),
-      checkInBy: String(obj.Check_In_By || ''),
-      checkInMethod: String(obj.Check_In_Method || ''),
-      checkInNote: String(obj.Check_In_Note || '')
+      checkInMethod: String(obj.Check_In_Method || '')
     });
 
     stats.total++;
@@ -838,6 +829,9 @@ function handleCheckInParticipant_(payload) {
 
 function handleListCheckins_(payload) {
   requireAdmin_(payload);
+  // limit: 'all' returns the full check-in log (used by the paginated admin and
+  // check-in module tables). Otherwise cap a numeric limit at 200.
+  var fetchAll = String(payload.limit).toLowerCase() === 'all';
   var limit = Number(payload.limit || 30);
   if (!limit || limit < 1) limit = 30;
   if (limit > 200) limit = 200;
@@ -848,7 +842,7 @@ function handleListCheckins_(payload) {
 
   var headers = values[0];
   var rows = [];
-  for (var i = values.length - 1; i >= 1 && rows.length < limit; i--) {
+  for (var i = values.length - 1; i >= 1 && (fetchAll || rows.length < limit); i--) {
     var obj = rowToObject_(headers, values[i]);
     rows.push({
       timestamp: formatDateTime_(obj.Timestamp),
@@ -1128,7 +1122,7 @@ function registrationToRow_(headers, data) {
 }
 
 function getResponseSheet_(config) {
-  var ss = SpreadsheetApp.openById(config.spreadsheetId);
+  var ss = openSpreadsheet_(config);
   var sheet = ss.getSheetByName(config.sheetName);
   var headers = getResponseHeaders_();
   if (!sheet) {
@@ -1143,7 +1137,7 @@ function getResponseSheet_(config) {
 
 
 function getCheckinSheet_(config) {
-  var ss = SpreadsheetApp.openById(config.spreadsheetId);
+  var ss = openSpreadsheet_(config);
   var sheet = ss.getSheetByName(config.checkinsSheetName);
   var headers = getCheckinHeaders_();
   if (!sheet) {
@@ -1158,7 +1152,7 @@ function getCheckinSheet_(config) {
 
 
 function getOfficeSheet_(sheetName, defaultOffices) {
-  var ss = SpreadsheetApp.openById(getConfig_().spreadsheetId);
+  var ss = openSpreadsheet_(getConfig_());
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
@@ -1403,23 +1397,36 @@ function extractRegistrationCodeFromQr_(value) {
   return '';
 }
 
+// APP_TIME_ZONE (Asia/Singapore) is a fixed UTC+8 offset with no daylight saving,
+// so we can format by shifting the instant and reading its UTC parts. This avoids
+// Utilities.formatDate, which is comparatively expensive when called up to four
+// times per row across hundreds/thousands of rows in listResponses/listCheckins.
+var APP_TZ_OFFSET_MS_ = 8 * 60 * 60 * 1000;
+function pad2_(n) { return (n < 10 ? '0' : '') + n; }
+function formatInAppTz_(date, withTime) {
+  var s = new Date(date.getTime() + APP_TZ_OFFSET_MS_);
+  var out = s.getUTCFullYear() + '-' + pad2_(s.getUTCMonth() + 1) + '-' + pad2_(s.getUTCDate());
+  if (!withTime) return out;
+  return out + ' ' + pad2_(s.getUTCHours()) + ':' + pad2_(s.getUTCMinutes()) + ':' + pad2_(s.getUTCSeconds());
+}
+
 function formatDateTime_(value) {
   if (!value) return '';
   var raw = String(value || '').trim();
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) return raw;
   var date = value instanceof Date ? value : new Date(value);
   if (!date || isNaN(date.getTime())) return raw;
-  return Utilities.formatDate(date, APP_TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
+  return formatInAppTz_(date, true);
 }
 
 function formatDateOnly_(value) {
   if (!value) return '';
-  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, APP_TIME_ZONE, 'yyyy-MM-dd');
+  if (value instanceof Date && !isNaN(value.getTime())) return formatInAppTz_(value, false);
   var raw = String(value || '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   var date = new Date(raw);
   if (!date || isNaN(date.getTime())) return raw;
-  return Utilities.formatDate(date, APP_TIME_ZONE, 'yyyy-MM-dd');
+  return formatInAppTz_(date, false);
 }
 
 function cleanDate_(value) {
@@ -1741,7 +1748,7 @@ function normalizeEmail_(value) {
 
 function getUsersSheet_() {
   var config = getConfig_();
-  var ss = SpreadsheetApp.openById(config.spreadsheetId);
+  var ss = openSpreadsheet_(config);
   var sheet = ss.getSheetByName(config.usersSheetName);
   if (!sheet) {
     sheet = ss.insertSheet(config.usersSheetName);
@@ -1907,9 +1914,9 @@ function listUsers() {
 }
 
 function getAuditSheet_() {
-  var props = PropertiesService.getScriptProperties();
-  var name = props.getProperty('AUDIT_SHEET_NAME') || 'Audit';
-  var ss = SpreadsheetApp.openById(getConfig_().spreadsheetId);
+  var config = getConfig_();
+  var name = config.auditSheetName || 'Audit';
+  var ss = openSpreadsheet_(config);
   var sheet = ss.getSheetByName(name);
   var headers = ['Timestamp', 'Event_ID', 'Action', 'Status', 'Actor', 'Registration_Code', 'Email_Address', 'Detail', 'User_Agent', 'Client_Origin'];
   if (!sheet) {
@@ -1941,25 +1948,87 @@ function auditLog_(action, status, registrationCode, email, detail, userAgent, c
   }
 }
 
+// Per-execution config cache. Apps Script starts a fresh runtime for every
+// request, so this module-level var is naturally reset between requests. Reading
+// all properties in a single getProperties() call avoids ~17 separate service
+// round-trips, and the cache stops repeated getConfig_() calls within one request
+// from re-reading them.
+var CONFIG_CACHE_ = null;
 function getConfig_() {
-  var props = PropertiesService.getScriptProperties();
-  return {
-    spreadsheetId: props.getProperty('SPREADSHEET_ID') || 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE',
-    sheetName: props.getProperty('RESPONSES_SHEET_NAME') || 'Registrations',
-    auditSheetName: props.getProperty('AUDIT_SHEET_NAME') || 'Audit',
-    checkinsSheetName: props.getProperty('CHECKINS_SHEET_NAME') || 'Checkins',
-    heiListSheetName: props.getProperty('HEI_LIST_SHEET_NAME') || 'HEI_List',
-    chedcoSheetName: props.getProperty('CHEDCO_SHEET_NAME') || 'CHEDCO',
-    usersSheetName: props.getProperty('USERS_SHEET_NAME') || 'Users',
-    submitSharedToken: props.getProperty('SUBMIT_SHARED_TOKEN') || '',
-    turnstileEnabled: String(props.getProperty('TURNSTILE_ENABLED') || 'TRUE').toUpperCase() !== 'FALSE',
-    turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || '',
-    eventName: props.getProperty('EVENT_NAME') || 'Event Registration Portal',
-    eventOrganizerName: props.getProperty('EVENT_ORGANIZER_NAME') || 'Event Registration Portal',
-    qrPayloadPrefix: props.getProperty('QR_PAYLOAD_PREFIX') || '',
-    certificateCompliancePdfUrl: normalizeDriveFileLink_(props.getProperty('CERTIFICATE_COMPLIANCE_PDF_URL') || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL),
-    breakoutSessionCapacity: Math.max(1, Number(props.getProperty('BREAKOUT_SESSION_CAPACITY') || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY)
+  if (CONFIG_CACHE_) return CONFIG_CACHE_;
+  var props = PropertiesService.getScriptProperties().getProperties();
+  CONFIG_CACHE_ = {
+    spreadsheetId: props.SPREADSHEET_ID || 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE',
+    sheetName: props.RESPONSES_SHEET_NAME || 'Registrations',
+    auditSheetName: props.AUDIT_SHEET_NAME || 'Audit',
+    checkinsSheetName: props.CHECKINS_SHEET_NAME || 'Checkins',
+    heiListSheetName: props.HEI_LIST_SHEET_NAME || 'HEI_List',
+    chedcoSheetName: props.CHEDCO_SHEET_NAME || 'CHEDCO',
+    usersSheetName: props.USERS_SHEET_NAME || 'Users',
+    submitSharedToken: props.SUBMIT_SHARED_TOKEN || '',
+    turnstileEnabled: String(props.TURNSTILE_ENABLED || 'TRUE').toUpperCase() !== 'FALSE',
+    turnstileSecretKey: props.TURNSTILE_SECRET_KEY || '',
+    eventName: props.EVENT_NAME || 'Event Registration Portal',
+    eventOrganizerName: props.EVENT_ORGANIZER_NAME || 'Event Registration Portal',
+    qrPayloadPrefix: props.QR_PAYLOAD_PREFIX || '',
+    certificateCompliancePdfUrl: normalizeDriveFileLink_(props.CERTIFICATE_COMPLIANCE_PDF_URL || DEFAULT_CERTIFICATE_COMPLIANCE_PDF_URL),
+    breakoutSessionCapacity: Math.max(1, Number(props.BREAKOUT_SESSION_CAPACITY || DEFAULT_BREAKOUT_SESSION_CAPACITY) || DEFAULT_BREAKOUT_SESSION_CAPACITY)
   };
+  return CONFIG_CACHE_;
+}
+
+// Per-execution Spreadsheet handle cache. SpreadsheetApp.openById has real
+// latency and several helpers open the same file within one request (e.g. login
+// touches Users + Audit; check-in touches Registrations + Checkins). Reusing the
+// handle avoids paying that cost more than once per request.
+var SPREADSHEET_CACHE_ = {};
+function openSpreadsheet_(config) {
+  var id = (config && config.spreadsheetId) || getConfig_().spreadsheetId;
+  if (!SPREADSHEET_CACHE_[id]) SPREADSHEET_CACHE_[id] = SpreadsheetApp.openById(id);
+  return SPREADSHEET_CACHE_[id];
+}
+
+// ---------------------------------------------------------------------------
+// Cold-start mitigation (optional). After an idle period Apps Script serves the
+// next request from a cold container — that is most of the ~2s baseline latency.
+// A frequent time-driven trigger keeps the project warm so user-facing requests
+// (listResponses / listCheckins / checkInParticipant) are more likely to land on
+// a warm container. Best-effort, not guaranteed, and it uses a small slice of the
+// daily trigger-runtime quota (a 5-minute touch is well within limits).
+//
+// Enable:  in the Apps Script editor, pick setupKeepWarmTrigger_ and Run once
+//          (authorize when prompted). Triggers can't be installed from a deploy,
+//          so this one-time manual step is required.
+// Disable: run removeKeepWarmTrigger_.
+// ---------------------------------------------------------------------------
+var KEEP_WARM_HANDLER_ = 'keepWarm_';
+
+function keepWarm_() {
+  // Minimal touch so the spreadsheet handle + authorization stay warm. Wrapped so
+  // a transient error never marks the scheduled run as failed.
+  try {
+    var config = getConfig_();
+    var sheet = openSpreadsheet_(config).getSheetByName(config.sheetName);
+    if (sheet) sheet.getRange(1, 1).getValue();
+  } catch (err) {}
+}
+
+function setupKeepWarmTrigger_() {
+  removeKeepWarmTrigger_();
+  ScriptApp.newTrigger(KEEP_WARM_HANDLER_).timeBased().everyMinutes(5).create();
+  return 'Keep-warm trigger installed: runs every 5 minutes.';
+}
+
+function removeKeepWarmTrigger_() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === KEEP_WARM_HANDLER_) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed++;
+    }
+  }
+  return 'Keep-warm triggers removed: ' + removed;
 }
 
 function verifySubmitToken_(token) {

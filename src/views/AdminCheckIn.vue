@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { API_URL, postJson } from '../lib/api.js'
 
@@ -19,6 +19,29 @@ const manualCode = ref('')
 const checkInNote = ref('')
 const recentCheckins = ref([])
 const lastResult = ref(null)
+
+// Recent check-ins list pagination. Defaults to 25 per page with 25 / 50 / 100 / All.
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 'all']
+const recentPageSize = ref(25)
+const recentPage = ref(1)
+const recentTotalPages = computed(() =>
+  recentPageSize.value === 'all' ? 1 : Math.max(1, Math.ceil(recentCheckins.value.length / recentPageSize.value))
+)
+const recentCurrentPage = computed(() => Math.min(Math.max(1, recentPage.value), recentTotalPages.value))
+const pagedRecentCheckins = computed(() => {
+  if (recentPageSize.value === 'all') return recentCheckins.value
+  const start = (recentCurrentPage.value - 1) * recentPageSize.value
+  return recentCheckins.value.slice(start, start + recentPageSize.value)
+})
+const recentRangeStart = computed(() =>
+  recentCheckins.value.length === 0 ? 0 : (recentPageSize.value === 'all' ? 1 : (recentCurrentPage.value - 1) * recentPageSize.value + 1)
+)
+const recentRangeEnd = computed(() =>
+  recentPageSize.value === 'all' ? recentCheckins.value.length : Math.min(recentCurrentPage.value * recentPageSize.value, recentCheckins.value.length)
+)
+watch([() => recentCheckins.value.length, recentPageSize], () => { recentPage.value = 1 })
+function recentPrev() { if (recentCurrentPage.value > 1) recentPage.value = recentCurrentPage.value - 1 }
+function recentNext() { if (recentCurrentPage.value < recentTotalPages.value) recentPage.value = recentCurrentPage.value + 1 }
 
 const scannerActive = ref(false)
 const scannerError = ref('')
@@ -92,7 +115,7 @@ async function loadRecentCheckins() {
   loadingRecent.value = true
   resetMessages()
   try {
-    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 30 })
+    const data = await postJson({ action: 'listCheckins', sessionToken: sessionToken.value, limit: 'all' })
     recentCheckins.value = Array.isArray(data.rows) ? data.rows : []
   } catch (error) {
     adminError.value = error?.message || 'Failed to load recent check-ins.'
@@ -321,14 +344,32 @@ onBeforeUnmount(() => stopScanner())
             <button class="rounded-2xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900" @click="loadRecentCheckins">{{ loadingRecent ? 'Loading…' : 'Refresh' }}</button>
           </div>
           <div v-if="!recentCheckins.length" class="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No check-ins yet.</div>
-          <div v-else class="mt-4 max-h-[460px] space-y-3 overflow-auto pr-1">
-            <div v-for="row in recentCheckins" :key="row.checkinId" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <p class="text-sm font-bold text-slate-950">{{ row.fullName }}</p>
-              <p class="mt-1 font-mono text-xs font-semibold text-slate-600">{{ row.registrationCode }}</p>
-              <p class="mt-2 text-xs text-slate-500">{{ row.timestamp }} · {{ row.method }}</p>
-              <p class="mt-1 text-xs text-slate-600">{{ [row.region, row.affiliation || row.hei].filter(Boolean).join(' · ') }}</p>
+          <template v-else>
+            <div class="mt-4 max-h-[460px] space-y-3 overflow-auto pr-1">
+              <div v-for="row in pagedRecentCheckins" :key="row.checkinId" class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-sm font-bold text-slate-950">{{ row.fullName }}</p>
+                <p class="mt-1 font-mono text-xs font-semibold text-slate-600">{{ row.registrationCode }}</p>
+                <p class="mt-2 text-xs text-slate-500">{{ row.timestamp }} · {{ row.method }}</p>
+                <p class="mt-1 text-xs text-slate-600">{{ [row.region, row.affiliation || row.hei].filter(Boolean).join(' · ') }}</p>
+              </div>
             </div>
-          </div>
+            <div class="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div class="flex items-center gap-2 text-slate-600">
+                <label class="font-medium">Rows per page</label>
+                <select v-model="recentPageSize" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm">
+                  <option v-for="opt in PAGE_SIZE_OPTIONS" :key="opt" :value="opt">{{ opt === 'all' ? 'All' : opt }}</option>
+                </select>
+              </div>
+              <div class="flex items-center gap-3 text-slate-600">
+                <span>{{ recentRangeStart }}–{{ recentRangeEnd }} of {{ recentCheckins.length }}</span>
+                <div class="flex gap-2">
+                  <button type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="recentCurrentPage <= 1" @click="recentPrev">Prev</button>
+                  <button type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="recentCurrentPage >= recentTotalPages" @click="recentNext">Next</button>
+                </div>
+                <span class="text-slate-500">Page {{ recentCurrentPage }} of {{ recentTotalPages }}</span>
+              </div>
+            </div>
+          </template>
           <button class="mt-5 rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-950" @click="logoutAdmin">Logout</button>
         </div>
       </div>
