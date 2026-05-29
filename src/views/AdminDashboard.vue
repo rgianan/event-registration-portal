@@ -24,6 +24,27 @@ const restoringSession = ref(false)
 const admin = reactive({ email: '', password: '', search: '' })
 const stats = ref({ total: 0, today: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedco: 0, resource: 0, other: 0 })
 
+// Summary cards are computed from the loaded rows (not the backend stats blob) so
+// they reflect cancellations immediately without a redeploy. Cancelled records are
+// excluded from every active count and tallied separately. The participant-type /
+// accommodation / check-in matching mirrors the backend stats logic. (Today is
+// left to the backend stats since it isn't derived here.)
+const liveStats = computed(() => {
+  const out = { active: 0, cancelled: 0, checkedIn: 0, accommodationYes: 0, sasFaculty: 0, student: 0, chedco: 0, resource: 0 }
+  for (const r of responses.value) {
+    if (String(r.status || '').toLowerCase() === 'cancelled') { out.cancelled++; continue }
+    out.active++
+    if (r.checkInStatus === 'CHECKED_IN') out.checkedIn++
+    if (r.accommodation === 'Yes') out.accommodationYes++
+    const pt = String(r.participantType || '')
+    if (pt === 'SAS Practitioner/Guidance/Faculty') out.sasFaculty++
+    else if (pt === 'Student') out.student++
+    else if (pt === 'CHED Central Office') out.chedco++
+    else if (pt === 'Resource Person/Facilitator/Moderator') out.resource++
+  }
+  return out
+})
+
 // Per-table filter + sort state. Separate refs for registrations vs. check-ins so
 // switching tabs preserves each view's selection.
 const regFilters = reactive({ sex: '', region: '', participantType: '' })
@@ -402,15 +423,16 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-8">
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Total</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.total }}</p></div>
+      <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-9">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Total</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ liveStats.active }}</p></div>
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4"><p class="text-xs uppercase tracking-wide text-rose-700">Cancelled</p><p class="mt-2 text-3xl font-bold text-rose-950">{{ liveStats.cancelled }}</p></div>
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Today</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.today }}</p></div>
-        <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4"><p class="text-xs uppercase tracking-wide text-violet-700">Checked in</p><p class="mt-2 text-3xl font-bold text-violet-950">{{ stats.checkedIn }}</p></div>
-        <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p class="text-xs uppercase tracking-wide text-blue-700">Accommodation</p><p class="mt-2 text-3xl font-bold text-blue-950">{{ stats.accommodationYes }}</p></div>
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs uppercase tracking-wide text-emerald-700">SAS/Guidance/Faculty</p><p class="mt-2 text-3xl font-bold text-emerald-950">{{ stats.sasFaculty }}</p></div>
-        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><p class="text-xs uppercase tracking-wide text-amber-700">Students</p><p class="mt-2 text-3xl font-bold text-amber-950">{{ stats.student }}</p></div>
-        <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4"><p class="text-xs uppercase tracking-wide text-sky-700">CHEDCO</p><p class="mt-2 text-3xl font-bold text-sky-950">{{ stats.chedco }}</p></div>
-        <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4"><p class="text-xs uppercase tracking-wide text-orange-700">Resource</p><p class="mt-2 text-3xl font-bold text-orange-950">{{ stats.resource }}</p></div>
+        <div class="rounded-2xl border border-violet-200 bg-violet-50 p-4"><p class="text-xs uppercase tracking-wide text-violet-700">Checked in</p><p class="mt-2 text-3xl font-bold text-violet-950">{{ liveStats.checkedIn }}</p></div>
+        <div class="rounded-2xl border border-blue-200 bg-blue-50 p-4"><p class="text-xs uppercase tracking-wide text-blue-700">Accommodation</p><p class="mt-2 text-3xl font-bold text-blue-950">{{ liveStats.accommodationYes }}</p></div>
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs uppercase tracking-wide text-emerald-700">SAS/Guidance/Faculty</p><p class="mt-2 text-3xl font-bold text-emerald-950">{{ liveStats.sasFaculty }}</p></div>
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><p class="text-xs uppercase tracking-wide text-amber-700">Students</p><p class="mt-2 text-3xl font-bold text-amber-950">{{ liveStats.student }}</p></div>
+        <div class="rounded-2xl border border-sky-200 bg-sky-50 p-4"><p class="text-xs uppercase tracking-wide text-sky-700">CHEDCO</p><p class="mt-2 text-3xl font-bold text-sky-950">{{ liveStats.chedco }}</p></div>
+        <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4"><p class="text-xs uppercase tracking-wide text-orange-700">Resource</p><p class="mt-2 text-3xl font-bold text-orange-950">{{ liveStats.resource }}</p></div>
       </div>
 
       <div class="mb-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-3">
