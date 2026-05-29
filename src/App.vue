@@ -5,7 +5,7 @@
         <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 sm:text-sm">Commission on Higher Education - Office of Student Development and Services</p>
         <h1 class="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">Ginhawa Student Wellbeing Summit</h1>
         <p class="mt-3 max-w-3xl text-sm text-slate-600">
-          Inspiring Wellness, Leadership, and Purpose in Higher Education | June 3-4, 2026.
+          Inspiring Wellness, Leadership, and Purpose in Higher Education | June 3-4, 2026 | Summit Ridge Tagaytay.
         </p>
       </div>
 

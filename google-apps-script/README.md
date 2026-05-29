@@ -78,7 +78,7 @@ The script uses SpreadsheetApp, MailApp, UrlFetchApp for Turnstile verification,
 For Student and SAS Practitioner/Guidance/Faculty participants who answer `Yes` to accommodation, the backend automatically saves:
 
 ```text
-Accommodation_Check_In_Date = 2026-06-02
+Accommodation_Check_In_Date = 2026-06-03
 Accommodation_Check_Out_Date = 2026-06-05
 ```
 
